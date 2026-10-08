@@ -151,6 +151,9 @@ Dashboardと音声の復帰にHome Assistantは不要。
 
 必要事項: SSHを所有者の鍵で有効化、host fingerprint確認、IP予約、private設定、binary SHA256。
 `deploy-trial.ps1` は明示 `-HumanApproved` と SHA256 を要求する。
+Windows OpenSSHと実機Dropbearの互換性のため、curve25519-sha256とlegacy SCPを使用する。
+USB経由で確認した公開ホスト鍵を私用known_hostsへ保存した場合は、`-KnownHosts <path>` を指定できる。
+ホスト鍵検証は常に有効。実機shellとwatchdogは管理コマンドのPATHを明示する。
 実機側でも active=a / booted=a / a=good / b=empty、既存bind mountなし、SHA一致を確認する。
 別状態ならSTOP。状態を合わせるためのslot操作はしない。
 
@@ -182,3 +185,6 @@ Aを上書きしない。カスタムrootfsの作成・署名・実機rollback�
 | 退路 | 5分watchdogまたは手動rollback後、上流daemonとA goodへ復帰 |
 
 PCテストPASSだけで上記をPASSへ変更しない。
+上流の初回Hello案内は維持するため、本体画面で閉じてからDashboardを確認する。
+checkersの物理ミュートがON（amazon-gating/state=1）ならPCMはゼロになる。
+解除は所有者が本体ボタンで行う。ソフトウェアによる解除やバイパスは行わない。

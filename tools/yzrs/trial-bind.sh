@@ -1,6 +1,7 @@
 #!/bin/sh
 # Human-approved temporary daemon test. Never changes rootfs slots or boot/recovery.
 set -eu
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 binary=${1:?uploaded binary path}
 expected=${2:?locally verified SHA256}
 config=${3:?uploaded private config path}
@@ -38,6 +39,7 @@ fi
 cat > /tmp/yzrs-trial/rollback.sh <<'EOF'
 #!/bin/sh
 set -eu
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 state=/data/misc/techo5/yzrs.json
 if awk '$2 == "/usr/local/bin/techo5" {found=1} END {exit !found}' /proc/mounts; then
     umount /usr/local/bin/techo5
