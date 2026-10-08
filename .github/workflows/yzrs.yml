@@ -1,8 +1,10 @@
 name: YZRS native integration
 on:
   pull_request:
-  push:
-    branches: ['yzrs/**']
+  workflow_dispatch:
+concurrency:
+  group: yzrs-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
