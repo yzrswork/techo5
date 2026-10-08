@@ -86,15 +86,20 @@ func (f *Feature) Run(ctx context.Context) error {
 	inner, cancel := context.WithCancel(ctx)
 	defer cancel()
 	if cfg.PTTAddr != "" {
-		host, _, e := net.SplitHostPort(cfg.PTTAddr)
+		host, port, e := net.SplitHostPort(cfg.PTTAddr)
 		ip := net.ParseIP(host)
-		if e != nil || ip == nil || !ip.IsPrivate() || net.ParseIP(cfg.PCIP) == nil || !net.ParseIP(cfg.PCIP).IsPrivate() || len(cfg.PTTToken) < 32 {
+		if e != nil || port != "17327" || ip == nil || ip.To4() == nil || !ip.IsPrivate() || net.ParseIP(cfg.PCIP) == nil || net.ParseIP(cfg.PCIP).To4() == nil || !net.ParseIP(cfg.PCIP).IsPrivate() || len(cfg.PTTToken) < 32 {
 			return errors.New("invalid trusted LAN PTT configuration")
 		}
 		cert, e := tls.LoadX509KeyPair(cfg.TLSCert, cfg.TLSKey)
 		if e != nil {
 			return errors.New("PTT TLS identity unavailable")
 		}
+		cleanup, e := pttFirewall(cfg.PCIP)
+		if e != nil {
+			return e
+		}
+		defer cleanup()
 		ptt = &core.PTT{Token: cfg.PTTToken, AllowedIP: cfg.PCIP, Listen: func() (<-chan []int16, func()) { return mic.Get().Listen("yzrs-ptt") }}
 		server = &http.Server{Handler: ptt.Handler(inner), ReadHeaderTimeout: 3 * time.Second, IdleTimeout: 10 * time.Second, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}}}
 	}

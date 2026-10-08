@@ -48,6 +48,10 @@ elif test -e /data/misc/techo5/yzrs-trial-backup/config.absent; then
     rm -f "$state"
 fi
 killall techo5 || true
+# A process crash may bypass its firewall cleanup; remove only the YZRS-owned chain.
+iptables-legacy -D TECHO5-IN -j YZRS-PTT 2>/dev/null || true
+iptables-legacy -F YZRS-PTT 2>/dev/null || true
+iptables-legacy -X YZRS-PTT 2>/dev/null || true
 echo 'Original daemon restored; slots untouched.'
 EOF
 chmod 700 /tmp/yzrs-trial/rollback.sh

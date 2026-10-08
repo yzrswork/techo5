@@ -43,6 +43,9 @@ Windows → Show の独立した `wss://<Show予約IP>:17327/ptt` を使用す�
 Deck の Noise 暗号化制御は変更しない。PTT は TLS、独立32バイト乱数の bearer token、
 明示したPCの予約IP、ブラウザーOrigin拒否、同時PC1台で保護する。
 自己署名証明書は Show IP を SAN に含め、PC側はその証明書を信頼する。TLS検証は無効にしない。
+上流のWi-Fi firewallは新規ポートを閉じているため、実行中だけ専用 `YZRS-PTT` chainを挿入し、
+指定PCのIPv4から17327/tcpだけを許可する。終了・試験rollback時に専用chainを除去する。
+上流 `TECHO5-IN` の既存ruleはflush・置換しない。PTT設定は予約IPv4・固定17327ポートに限定する。
 Home Assistant の暗号鍵をPTTへ流用しない。秘密値はログ・リポジトリへ出さない。
 証明書は1年。期限前に所有者管理で更新する。ルーターで Show/PC のIP予約が必要。
 
