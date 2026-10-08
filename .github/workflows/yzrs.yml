@@ -1,0 +1,59 @@
+name: YZRS native integration
+on:
+  pull_request:
+  push:
+    branches: ['yzrs/**']
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.26.8'
+          cache-dependency-path: echod/go.sum
+      - name: Tests and race checks
+        working-directory: echod
+        run: |
+          go test ./...
+          go test -tags dot ./...
+          go test -tags spot ./...
+          go test -race ./internal/yzrs
+          go vet ./internal/yzrs
+      - name: Native ARM build
+        working-directory: echod
+        env:
+          GOOS: linux
+          GOARCH: arm
+          GOARM: '7'
+          CGO_ENABLED: '0'
+        run: go build -trimpath -o ../bin/echod-arm ./cmd/echod
+      - name: Native renderer and P2A
+        run: |
+          python3 -m pip install websockets==15.0.1
+          python3 -m unittest discover -s tools/yzrs -p test_voice_bridge.py -v
+          cd echod
+          go run ./cmd/yzrs-preview -out ../bin/preview -snapshot internal/yzrs/testdata/dashboard.json
+          go run ./cmd/yzrs-identity -out "$RUNNER_TEMP/ptt" -ip 127.0.0.1
+          go build -o "$RUNNER_TEMP/ptt-fixture" ./cmd/yzrs-ptt-fixture
+          "$RUNNER_TEMP/ptt-fixture" -cert "$RUNNER_TEMP/ptt/ptt-cert.pem" -key "$RUNNER_TEMP/ptt/ptt-key.pem" &
+          fixture_pid=$!
+          trap 'kill "$fixture_pid"' EXIT
+          python3 ../tools/yzrs/test_p2a.py "$RUNNER_TEMP/ptt/ptt-cert.pem"
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.26.8'
+          cache-dependency-path: echod/go.sum
+      - name: Portable client tests
+        run: |
+          python -m unittest discover -s tools/yzrs -p test_voice_bridge.py -v
+          cd echod
+          go test ./internal/yzrs
+          go vet ./internal/yzrs
+          go build -o ../bin/techo5-deck-windows-amd64.exe ./cmd/techo5-deck
