@@ -159,6 +159,7 @@ USB経由で確認した公開ホスト鍵を私用known_hostsへ保存した場
 
 実行時は `/tmp/yzrs-<SHA>.elf` を既存 `/usr/local/bin/techo5` へbindし、デーモンを再起動する。
 5分後にSSH接続と独立したwatchdogがunmountし、元の設定とデーモンへ戻す。
+実行中のbinaryで通常unmountがbusyになった場合はlazy detachし、元imageが見える状態でdaemonを終了する。
 元のYZRS設定は `/data/misc/techo5/yzrs-trial-backup/` に保全する。
 早期復帰はそこにある `rollback.sh` を実行する。
 試験中にrebootすればbind mountは消える。設定復元は保全したrollback.shで行う。

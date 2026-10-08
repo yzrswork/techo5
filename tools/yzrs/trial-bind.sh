@@ -42,7 +42,9 @@ set -eu
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 state=/data/misc/techo5/yzrs.json
 if awk '$2 == "/usr/local/bin/techo5" {found=1} END {exit !found}' /proc/mounts; then
-    umount /usr/local/bin/techo5
+    # A running executable can keep the bind busy. Detach it before killing the daemon,
+    # so the boot supervisor's next exec resolves the original read-only image.
+    umount /usr/local/bin/techo5 2>/dev/null || umount -l /usr/local/bin/techo5
 fi
 if test -e /data/misc/techo5/yzrs-trial-backup/config.prev; then
     cp -p /data/misc/techo5/yzrs-trial-backup/config.prev "$state"

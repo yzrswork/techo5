@@ -36,6 +36,7 @@ jobs:
         run: |
           python3 -m pip install websockets==15.0.1
           python3 -m unittest discover -s tools/yzrs -p test_voice_bridge.py -v
+          python3 -m unittest discover -s tools/yzrs -p test_trial_rollback.py -v
           cd echod
           go run ./cmd/yzrs-preview -out ../bin/preview -snapshot internal/yzrs/testdata/dashboard.json
           go run ./cmd/yzrs-identity -out "$RUNNER_TEMP/ptt" -ip 127.0.0.1
