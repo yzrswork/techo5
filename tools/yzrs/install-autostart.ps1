@@ -5,7 +5,10 @@ $config = Join-Path $PrivateDir 'pc.json'
 if (!(Test-Path -LiteralPath $config)) { throw 'Permanent PTT configuration not found' }
 $startup = [Environment]::GetFolderPath('Startup')
 $linkPath = Join-Path $startup 'YZRS TECHO5 PTT.lnk'
-$powerShell = Join-Path $PSHOME 'powershell.exe'
+# The installer may run under pwsh, whose directory contains no powershell.exe.
+# Use the stable Windows inbox launcher for this PowerShell 5.1-compatible script.
+$powerShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+if (!(Test-Path -LiteralPath $powerShell)) { throw 'Windows PowerShell launcher unavailable' }
 $launcher = Join-Path $PSScriptRoot 'start-voice.ps1'
 $shell = New-Object -ComObject WScript.Shell
 $link = $shell.CreateShortcut($linkPath)

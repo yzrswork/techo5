@@ -38,3 +38,17 @@ TODAYは2026-10-10の通常snapshotを確認。午前0時直後のSTALEは現在
 
 1. P2 / 小: Worker更新は確認できる一方、定期senderログが増えない。既存ログの保存先・書込失敗だけを限定診断し、機密を含まない結果記録を確実にする。無人運用時の原因追跡が容易になる。
 2. P1 / 小: 既存deploy-slot-b.ps1はA起動/B empty専用の初回導入条件で、現在のB good更新には使えない。次の承認済み更新時に、Aを保護した既存slotctl更新手順を現在状態に合わせて限定整備する。受入済み端末への誤操作を防ぐ。
+
+## 最終配備・受入（2026-10-10）
+
+Human Gateの同一対象/候補/Slot A保護範囲に明示承認を受け、前回成功したdevice-update.ps1と端末slotctl実装を照合して再利用。Slot B goodは更新不可を意味しない。初回導入用deploy-slot-b.ps1の制約であり、既存の更新手順で対応できる。
+
+Verified SSH/serial、承認済み候補SHA一致、active/booted B、A/B good、Aのdaemon/release/boot.shと常用設定の指紋を確認。支持済みslotctl switch a→実際のA起動→承認候補の転送・hash照合→非稼働Bへslotctl install→導入daemon hash照合→B起動。追加のrollback/stress試験や手動commitは行わず、既存300秒機構がuptime 317.53秒で自動確定した。
+
+最終active/booted B、A/B good、store read-only。Aの確認済み指紋と常用設定は一致し、boot/recoveryの変更なし。適用rootfs SHA256: b6a24fecfe83521175016c938ae07feb0c652db115a93e58e9b6e32d0f8d45c7、daemon source a01fef4。
+
+所有者が4タイルの指touch/4モード切替・表示の重なり・残量ring・桁区切りを確認。F8は当初使えなかった。Windows native PTT clientが停止し、Startup linkが存在しない$PSHOME/powershell.exeを指していることを確認。PowerShell 7でinstaller実行時に存在しない実行先を組み立てる小さな不具合を修正し、Windows標準PowerShellの存在を検証して登録。既存常用clientを起動してWSS接続/READY/IDLEを確認、所有者の代表的F8操作で実入力が成功した。モデル・PTT protocol・認証・rootfsは再変更していない。
+
+UI/指touch/F8/実データrefresh/安全更新: PASS。Windows通常ログイン時の前面化/黒窓観測のみPENDING、天気地域設定は任意。全体CONDITIONAL GO。PRはDraftで未マージ。framebuffer dumpは起動ロゴの残像だったためUI受入証拠に使用していない。
+
+上記の配備前STOP/Human Gate待ちとP1更新手順提案は、この最終結果で解消。追加提案は既存senderログの欠落診断（P2/小）のみで、今回未実装。
