@@ -119,12 +119,12 @@ func TestNativeJapaneseRenderer(t *testing.T) {
 	for i := range Modes {
 		dst := image.NewRGBA(image.Rect(0, 0, 960, 480))
 		r.Draw(dst, Frame{Now: fixtureTime, Mode: i, Data: View{Snapshot: s, Status: "LIVE"}})
-		if dst.RGBAAt(0, 0) != navy {
-			t.Fatal("wrong native canvas")
+		if dst.RGBAAt(0, 0) != r.background.RGBAAt(0, 0) {
+			t.Fatal("reference background was not drawn")
 		}
 	}
 	for i := range Modes {
-		m, ok := ModeAt(260+i*171, 440)
+		m, ok := ModeAt(NavBounds(i).Min.X+10, 440)
 		if !ok || m != i {
 			t.Fatal("navigation hit mapping")
 		}

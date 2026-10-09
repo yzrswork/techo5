@@ -31,7 +31,9 @@ func (r *renderer) drawYZRS(s scene) bool {
 	if yzrsRenderer.r == nil {
 		return false
 	}
-	yzrsRenderer.r.Draw(r.dst, feature.Get().Frame(s.now))
+	frame := feature.Get().Frame(s.now)
+	frame.Weather = core.Weather{Condition: s.weather.Condition, Temp: s.weather.Temp, Updated: s.weather.Updated}
+	yzrsRenderer.r.Draw(r.dst, frame)
 	return true
 }
 func (d *Display) yzrsTap(x, y int) {

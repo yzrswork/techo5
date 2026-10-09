@@ -53,5 +53,5 @@ func (f *Feature) ownWeather() Weather {
 		return Weather{}
 	}
 	// Adding zero turns the -0 that rounding -0.4 gives into 0, which is what a thermometer says.
-	return Weather{Condition: f.own.Condition, Temp: fmt.Sprintf("%.0f°", math.Round(f.own.Temp)+0)}
+	return Weather{Updated: f.ownAt, Condition: f.own.Condition, Temp: fmt.Sprintf("%.0f°", math.Round(f.own.Temp)+0)}
 }
