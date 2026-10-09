@@ -218,3 +218,19 @@ PCテストPASSだけで上記をPASSへ変更しない。
 上流の初回Hello案内は維持するため、本体画面で閉じてからDashboardを確認する。
 checkersの物理ミュートがON（amazon-gating/state=1）ならPCMはゼロになる。
 解除は所有者が本体ボタンで行う。ソフトウェアによる解除やバイパスは行わない。
+
+## 常用rootfsとSlot B
+
+Slot Bの準備には、上流 `tools/linux/deploy-rootfs.sh --out <tarball> --version v1.1.1-yzrs.<date>` を使う。
+この作業ブランチのdaemon/overlayが入ったrootfsをローカルで作成し、SHA256を記録する。
+`tools/yzrs/prepare-permanent.ps1` は受入済みPTT identityをWindows ACL保護済みの常用設定へ複製し、
+Show側TLSパスを `/data/misc/techo5/yzrs-private/` に向ける。
+`tools/yzrs/deploy-slot-b.ps1 -PreflightOnly` は検証済みknown_hostsをStrictHostKeyCheckingで確認し、
+Slot A good / Slot B emptyを読み取り確認する。
+
+実機承認後にだけ同scriptを `-HumanApproved` 付きで実行する。
+scriptは常用設定を/dataへ置き、上流 `slotctl install` によって非起動のSlot Bをtrialとして選び、再起動する。
+健康なdaemonが300秒動作すると上流boot hookがBをgoodへcommitする。
+起動失敗は既存の3-boot trialでAへfallbackする。起動中にBを手動で戻す場合も上流 `slotctl rollback` を使う。
+Windowsの `tools/yzrs/start-voice.ps1` は常用 `pc.json` を使い、`install-autostart.ps1` がユーザーStartup shortcutを作る。
+boot/recovery、Slot A、custom updaterは変更しない。
