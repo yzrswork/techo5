@@ -20,7 +20,8 @@ if (!$show.enabled -or $show.ptt_addr -ne ($ShowIP+':17327') -or $pc.url -ne ('w
 if ($PCIP -notmatch '^\d{1,3}(\.\d{1,3}){3}$') { throw 'Invalid Windows PTT client address' }
 foreach ($name in @('ptt-cert.pem','ptt-key.pem')) {
     $path = Join-Path $SourcePrivateDir $name
-    if (!(Test-Path -LiteralPath $path) -or (Get-Item -LiteralPath $path).Length -lt 256) { throw 'PTT identity incomplete' }
+    $minimumBytes = if ($name -eq 'ptt-cert.pem') { 256 } else { 64 }
+    if (!(Test-Path -LiteralPath $path) -or (Get-Item -LiteralPath $path).Length -lt $minimumBytes) { throw 'PTT identity incomplete' }
 }
 New-Item -ItemType Directory -Path $PrivateDir | Out-Null
 $account = [Security.Principal.WindowsIdentity]::GetCurrent().Name
