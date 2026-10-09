@@ -9,7 +9,7 @@ param(
     [switch]$HumanApproved
 )
 $ErrorActionPreference = 'Stop'
-if (!$HumanApproved) { throw '実機試験は所有者の承認後に -HumanApproved を付けて実行してください。' }
+if (!$HumanApproved) { throw 'Owner approval required: use -HumanApproved only after the Human Gate' }
 if ($ShowIP -notmatch '^\d{1,3}(\.\d{1,3}){3}$' -or $ExpectedSHA256 -notmatch '^[a-f0-9]{64}$' -or $DeviceSerial -notmatch '^[A-Z0-9]+$') { throw 'Invalid IP, serial or SHA256' }
 $hash = (Get-FileHash -LiteralPath $Binary -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($hash -ne $ExpectedSHA256) { throw 'Binary checksum mismatch' }
@@ -23,7 +23,9 @@ if ($KnownHosts) { $sshOptions += @('-o',('UserKnownHostsFile='+[IO.Path]::GetFu
 if (!(Test-Path -LiteralPath $SSHKey) -or !(Test-Path -LiteralPath $KnownHosts)) { throw 'Verified SSH identity required' }
 # All device gates precede uploads or directory creation. Repeat mount/slot checks in trial-bind.sh.
 $preflight = 'set -eu; export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; grep -q androidboot.serialno=SERIAL /proc/cmdline; status=$(STORE=/store slotctl status); printf "%s\n" "$status" | grep -q "^active: a$"; printf "%s\n" "$status" | grep -q "^booted: a$"; printf "%s\n" "$status" | grep -q "^slot a: good"; printf "%s\n" "$status" | grep -q "^slot b: empty"; test ! -e /tmp/yzrs-trial; test ! -e /tmp/yzrs-private; test ! -e /data/misc/techo5/yzrs-trial-backup; if awk ''$2 == "/usr/local/bin/techo5" {found=1} END {exit !found}'' /proc/mounts; then exit 1; fi; echo DEVICE_GATE=PASS'
-& ssh.exe @sshOptions $remote ($preflight.Replace('SERIAL',$DeviceSerial))
+# Windows PowerShell 5.1 strips embedded quotes in native command arguments.
+# Send this non-secret read-only script via stdin so the remote shell sees exact quoting.
+($preflight.Replace('SERIAL',$DeviceSerial)) | & ssh.exe @sshOptions $remote 'tr -d ''\r'' | sh -s'
 if ($LASTEXITCODE -ne 0) { throw 'SSH prerequisite failed; device not modified' }
 & ssh.exe @sshOptions $remote 'umask 077; mkdir -m 700 /tmp/yzrs-private'
 if ($LASTEXITCODE -ne 0) { throw 'Private staging unavailable' }
