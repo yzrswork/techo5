@@ -102,7 +102,9 @@ def transcribe_pcm(model, pcm):
     if not _stt_lock.acquire(blocking=False):
         raise RuntimeError("Previous disconnected transcription still running")
     try:
-        segments, _ = model.transcribe(audio, language="ja", vad_filter=False)
+        # Nonzero microphone noise is not speech. Silero VAD prevents decoding
+        # noise-only recordings into plausible Japanese and pasting that text.
+        segments, _ = model.transcribe(audio, language="ja", vad_filter=True)
         return "".join(segment.text for segment in segments).strip()
     finally:
         _stt_lock.release()
@@ -119,6 +121,13 @@ def cuda_environment():
     os.environ["PATH"] = str(folder) + os.pathsep + os.environ["PATH"]
     if hasattr(os, "add_dll_directory"):
         _dll_handles.append(os.add_dll_directory(str(folder)))
+
+
+def check_vad():
+    # Check the bundled ONNX model before registering F8 or connecting to a device.
+    import numpy as np
+    from faster_whisper.vad import get_speech_timestamps
+    get_speech_timestamps(np.zeros(512, dtype=np.float32))
 
 
 async def connection(ws, events, session, transcribe, paste):
@@ -294,6 +303,7 @@ def main():
             from faster_whisper import WhisperModel
             return WhisperModel
         WhisperModel = startup_step("DEPENDENCIES", load_dependencies)
+        startup_step("VAD", check_vad)
         print("small / CUDA / float16 読み込み中", flush=True)
         model = startup_step("MODEL_CUDA", lambda: WhisperModel("small", device="cuda", compute_type="float16"))
         asyncio.run(run(cfg, model, args.check_startup))

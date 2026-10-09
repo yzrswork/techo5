@@ -98,6 +98,28 @@ class FakeSocket:
 
 
 class ConnectionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_no_speech_result_finishes_without_clipboard_or_paste(self):
+        events = asyncio.Queue()
+        ws = FakeSocket(events)
+        s = Session()
+        pasted, recordings = [], []
+        original_send = ws.send
+        async def send(raw):
+            await original_send(raw)
+            if json.loads(raw)["op"] == "done":
+                events.put_nowait("exit")
+        ws.send = send
+        def transcribe(pcm):
+            recordings.append(pcm)
+            return ""
+        events.put_nowait("down")
+        self.assertFalse(await asyncio.wait_for(connection(ws, events, s, transcribe, pasted.append), 2))
+        self.assertEqual(len(recordings), 1)
+        self.assertEqual(pasted, [])
+        self.assertEqual(sum(m["op"] == "done" for m in ws.sent), 1)
+        self.assertEqual(s.phase, "IDLE")
+        self.assertEqual(len(s.pcm), 0)
+
     async def test_fixture_transcription_single_paste_and_heartbeat(self):
         events = asyncio.Queue()
         ws = FakeSocket(events)
