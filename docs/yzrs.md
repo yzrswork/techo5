@@ -4,6 +4,35 @@
 上流基準は `32b47682bfbf08f6410f547ea76275535f18de2d`。
 この変更は実装・PC検証済みの配備候補であり、実機受入完了ではない。
 
+## 2026-10-09 Windows / native UI 継続検証
+
+起動失敗の直接原因は、既存TLS identityだけが生成され、`pc.json` / `yzrs.json` が存在しなかったこと。
+`prepare-config.ps1 -ReuseIdentity -PTTOnly` は既存鍵・トークンを再利用し、不足した設定だけを作成する。
+既存JSONは上書きしない。ACLは現在ユーザーだけに制限する。PTT-onlyは予約 `.invalid` URLを使用し、
+本番Worker表示の受入とは区別する。PowerShell 5.1で実行し、生成JSONを読み戻してからREADYを表示する。
+
+起動診断はCONFIG / TLS / CUDA / DEPENDENCIES / MODEL_CUDA / HOTKEY等の固定カテゴリだけを出力する。
+証明書不一致・認証拒否・不正WSS endpointは停止し、ネットワーク断だけを再接続する。
+`start-voice.ps1 -CheckStartup` は実GPUモデルとTLS、キーボードhookを検証して終了する。
+通常の `start-voice.ps1` は既存singletonを使って非表示起動し、私用ディレクトリに安全な診断を残す。
+旧Butler F8クライアントとの共存は実音声操作が競合するため、試験時に旧クライアントを終了して切り替える。
+
+`test_windows_readiness.py <loopback-cert>` は実GPU・hook登録・認証拒否・TLS拒否・本番F8 callback・
+日本語認識・paste callback・Esc・singletonを検証する。F8をOS全体に送信しない。
+`--reconnect` は別の認証TLS loopback serverで、本番runの切断→再接続→Escを検証する。
+既存日本語PCMは私用領域で最後の20ms frameをゼロ埋めし、音声や認識結果は公開しない。
+
+プレビューに `-cases` を追加すると、長い日本語、空TODAY、AI unavailable、OFFLINE/LKG、STALE、
+NO DATA、VOICE listeningの明示的なfixtureを生成する。既定のVOICEはdisconnected / Deck unavailable。
+AIのLKG表示はOFFLINEを優先し、直近キャッシュをLIVEと誤表示しない。
+通常のCLOCK/TODAY/AI/VOICEと同じnative rendererで960×480の画像を生成する。
+
+`start-trial.ps1` は私用 `readiness.json` の検証済みIP、serial、binary、SHA256を使う。
+承認スイッチなしではHuman Gateを表示するだけで実機を変更しない。
+承認後もupload前にstrict SSH・actual serial・A good/B empty・bind/trial/private stagingなしを再検証する。
+ARMソース更新時は再ビルドし、manifestのSHA256を更新してから使う。
+物理画面・実音声paste・修正版300秒watchdogの実機受入は承認後に行う。
+
 ## 構成
 
 - `echod/internal/yzrs`: ハードウェアから独立したスキーマ検証、データ保存、描画、PTT。

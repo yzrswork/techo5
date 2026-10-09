@@ -93,6 +93,16 @@ func percent(n *float64) string {
 	return fmt.Sprintf("%.0f%%", *n)
 }
 
+func aiStatus(a *AI, now time.Time, dataStatus string) string {
+	if dataStatus == "OFFLINE / LKG" {
+		return "OFFLINE / LKG"
+	}
+	if a.Live(now) {
+		return "LIVE"
+	}
+	return "STALE"
+}
+
 type Frame struct {
 	Now   time.Time
 	Mode  int
@@ -172,10 +182,7 @@ func (r *Renderer) Draw(dst draw.Image, f Frame) {
 			r.text(dst, 256, 161, 665, "AI データは利用できません。", r.normal, muted)
 		} else {
 			a := s.AI
-			status := "STALE"
-			if a.Live(now) {
-				status = "LIVE"
-			}
+			status := aiStatus(a, now, f.Data.Status)
 			r.text(dst, 256, 153, 665, a.Codex.Plan+"  /  "+status, r.normal, white)
 			r.text(dst, 256, 205, 665, "SESSION REMAINING  "+percent(a.Codex.Session.Remaining), r.normal, white)
 			r.text(dst, 256, 235, 665, "RESET "+a.Codex.Session.Reset.In(JST).Format("01/02 15:04"), r.small, muted)
@@ -196,7 +203,7 @@ func (r *Renderer) Draw(dst draw.Image, f Frame) {
 		}
 		r.text(dst, 256, 215, 665, status, r.normal, muted)
 		r.text(dst, 256, 260, 665, "F8 を押して話す / 離して文字起こし", r.normal, white)
-		r.text(dst, 256, 310, 665, "VOICE は Windows クライアントの起動操作です。", r.normal, muted)
+		r.text(dst, 256, 310, 665, "VOICE は Windows クライアントを起動します。", r.normal, muted)
 		r.text(dst, 256, 360, 665, "DECK / "+f.Deck, r.small, cyan)
 	}
 	if s := f.Data.Snapshot; s != nil && s.AI != nil && !s.AI.Live(now) {

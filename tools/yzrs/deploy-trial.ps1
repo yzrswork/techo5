@@ -4,12 +4,13 @@ param(
     [Parameter(Mandatory=$true)][string]$Binary,
     [Parameter(Mandatory=$true)][string]$PrivateDir,
     [Parameter(Mandatory=$true)][string]$ExpectedSHA256,
-    [string]$KnownHosts,
+    [Parameter(Mandatory=$true)][string]$KnownHosts,
+    [Parameter(Mandatory=$true)][string]$DeviceSerial,
     [switch]$HumanApproved
 )
 $ErrorActionPreference = 'Stop'
 if (!$HumanApproved) { throw '実機試験は所有者の承認後に -HumanApproved を付けて実行してください。' }
-if ($ShowIP -notmatch '^\d{1,3}(\.\d{1,3}){3}$' -or $ExpectedSHA256 -notmatch '^[a-f0-9]{64}$') { throw 'Invalid IP or SHA256' }
+if ($ShowIP -notmatch '^\d{1,3}(\.\d{1,3}){3}$' -or $ExpectedSHA256 -notmatch '^[a-f0-9]{64}$' -or $DeviceSerial -notmatch '^[A-Z0-9]+$') { throw 'Invalid IP, serial or SHA256' }
 $hash = (Get-FileHash -LiteralPath $Binary -Algorithm SHA256).Hash.ToLowerInvariant()
 if ($hash -ne $ExpectedSHA256) { throw 'Binary checksum mismatch' }
 foreach ($name in @('yzrs.json','ptt-key.pem','ptt-cert.pem')) {
@@ -19,8 +20,13 @@ $remote = ('root@'+$ShowIP)
 # Default host-key verification is preserved. Never use StrictHostKeyChecking=no.
 $sshOptions = @('-o','KexAlgorithms=curve25519-sha256','-o','BatchMode=yes','-o','StrictHostKeyChecking=yes','-i',$SSHKey)
 if ($KnownHosts) { $sshOptions += @('-o',('UserKnownHostsFile='+[IO.Path]::GetFullPath($KnownHosts))) }
-& ssh.exe @sshOptions $remote 'test ! -e /tmp/yzrs-trial && mkdir -m 700 -p /tmp/yzrs-private'
+if (!(Test-Path -LiteralPath $SSHKey) -or !(Test-Path -LiteralPath $KnownHosts)) { throw 'Verified SSH identity required' }
+# All device gates precede uploads or directory creation. Repeat mount/slot checks in trial-bind.sh.
+$preflight = 'set -eu; export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; grep -q androidboot.serialno=SERIAL /proc/cmdline; status=$(STORE=/store slotctl status); printf "%s\n" "$status" | grep -q "^active: a$"; printf "%s\n" "$status" | grep -q "^booted: a$"; printf "%s\n" "$status" | grep -q "^slot a: good"; printf "%s\n" "$status" | grep -q "^slot b: empty"; test ! -e /tmp/yzrs-trial; test ! -e /tmp/yzrs-private; test ! -e /data/misc/techo5/yzrs-trial-backup; if awk ''$2 == "/usr/local/bin/techo5" {found=1} END {exit !found}'' /proc/mounts; then exit 1; fi; echo DEVICE_GATE=PASS'
+& ssh.exe @sshOptions $remote ($preflight.Replace('SERIAL',$DeviceSerial))
 if ($LASTEXITCODE -ne 0) { throw 'SSH prerequisite failed; device not modified' }
+& ssh.exe @sshOptions $remote 'umask 077; mkdir -m 700 /tmp/yzrs-private'
+if ($LASTEXITCODE -ne 0) { throw 'Private staging unavailable' }
 & scp.exe -O @sshOptions $Binary ($remote+':/tmp/yzrs-'+$hash+'.elf')
 if ($LASTEXITCODE -ne 0) { throw 'Binary upload failed' }
 foreach ($name in @('yzrs.json','ptt-key.pem','ptt-cert.pem')) {

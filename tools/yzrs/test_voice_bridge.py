@@ -1,8 +1,42 @@
 import asyncio
 import json
 import unittest
+import tempfile
+from pathlib import Path
 
-from voice_bridge import MAX_PCM, Session, connection
+from voice_bridge import MAX_PCM, Session, connection, read_config, startup_step, StartupError
+
+
+class StartupTests(unittest.TestCase):
+    def test_missing_configuration_and_certificate(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "pc.json"
+            with self.assertRaises(StartupError) as error:
+                startup_step("CONFIG", lambda: read_config(path))
+            self.assertEqual(str(error.exception), "CONFIG")
+            path.write_text(json.dumps({"url": "wss://127.0.0.1:17327/ptt",
+                "token": "x" * 64, "ca_file": str(Path(folder) / "absent.pem")}))
+            with self.assertRaises(ValueError):
+                read_config(path)
+
+    def test_safe_error_category_and_invalid_config(self):
+        def private_error():
+            raise ValueError("Bearer must-never-appear")
+        with self.assertRaises(StartupError) as error:
+            startup_step("TLS", private_error)
+        self.assertEqual(str(error.exception), "TLS")
+        with tempfile.TemporaryDirectory() as folder:
+            cert = Path(folder) / "cert.pem"
+            cert.touch()
+            cfg = {"url": "wss://127.0.0.1:bad/ptt", "token": "x" * 64, "ca_file": str(cert)}
+            path = Path(folder) / "pc.json"
+            path.write_text(json.dumps(cfg))
+            with self.assertRaises(ValueError):
+                read_config(path)
+            cfg.update(url="wss://127.0.0.1:17327/ptt", token="x" * 32 + "\n")
+            path.write_text(json.dumps(cfg))
+            with self.assertRaises(ValueError):
+                read_config(path)
 
 
 class SessionTests(unittest.TestCase):

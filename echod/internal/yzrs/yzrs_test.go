@@ -133,6 +133,19 @@ func TestNativeJapaneseRenderer(t *testing.T) {
 		t.Fatal("outside navigation activated")
 	}
 }
+
+func TestAIOfflineStatus(t *testing.T) {
+	s, e := Parse(fixture(t), fixtureTime)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if got := aiStatus(s.AI, fixtureTime, "OFFLINE / LKG"); got != "OFFLINE / LKG" {
+		t.Fatalf("cached AI falsely shown live: %s", got)
+	}
+	if aiStatus(s.AI, fixtureTime, "LIVE") != "LIVE" || aiStatus(s.AI, fixtureTime.Add(time.Hour), "STALE") != "STALE" {
+		t.Fatal("AI freshness lost")
+	}
+}
 func dialPTT(t *testing.T, p *PTT) (*websocket.Conn, *httptest.Server) {
 	t.Helper()
 	srv := httptest.NewServer(p.Handler(context.Background()))

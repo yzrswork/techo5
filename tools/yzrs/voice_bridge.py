@@ -10,12 +10,25 @@ from pathlib import Path
 import shutil
 import socket
 import ssl
+import sys
 import time
 import threading
 import uuid
 
 MAX_PCM = 16000 * 2 * 60
 _stt_lock = threading.Lock()
+_dll_handles = []
+
+
+class StartupError(RuntimeError):
+    """Only fixed categories, never exception strings containing private config."""
+
+
+def startup_step(category, action):
+    try:
+        return action()
+    except Exception:
+        raise StartupError(category) from None
 
 
 class Session:
@@ -104,6 +117,8 @@ def cuda_environment():
     if not all((folder / name).is_file() for name in dlls):
         raise RuntimeError("CUDA 12 の DLL フォルダーを設定してください。")
     os.environ["PATH"] = str(folder) + os.pathsep + os.environ["PATH"]
+    if hasattr(os, "add_dll_directory"):
+        _dll_handles.append(os.add_dll_directory(str(folder)))
 
 
 async def connection(ws, events, session, transcribe, paste):
@@ -172,18 +187,22 @@ def read_config(path):
     cfg = json.loads(Path(path).read_text(encoding="utf-8-sig"))
     from urllib.parse import urlsplit
     url = urlsplit(cfg["url"])
-    if url.scheme != "wss" or not url.hostname or url.path != "/ptt" or url.username or url.query or url.fragment:
+    if url.scheme != "wss" or not url.hostname or url.path != "/ptt" or url.username or url.password or url.query or url.fragment:
         raise ValueError("Invalid PTT URL")
-    if len(cfg["token"]) < 32:
+    if not isinstance(cfg["token"], str) or len(cfg["token"]) < 32 or any(c.isspace() for c in cfg["token"]):
         raise ValueError("Invalid PTT token")
+    url.port  # Validate malformed ports before entering a reconnect loop.
+    if not Path(cfg["ca_file"]).is_file():
+        raise ValueError("Missing PTT certificate")
     return cfg
 
 
-async def run(cfg, model):
+async def run(cfg, model, check_startup=False):
     import keyboard
     import pyperclip
     from websockets.asyncio.client import connect
-    tls = ssl.create_default_context(cafile=cfg["ca_file"])
+    from websockets.exceptions import InvalidStatus, InvalidHandshake
+    tls = startup_step("TLS", lambda: ssl.create_default_context(cafile=cfg["ca_file"]))
     loop = asyncio.get_running_loop()
     events = asyncio.Queue(maxsize=32)
     session = Session()
@@ -200,11 +219,14 @@ async def run(cfg, model):
             loop.call_soon_threadsafe(enqueue, event.event_type)
         elif event.name == "esc" and event.event_type == keyboard.KEY_DOWN:
             loop.call_soon_threadsafe(enqueue, "exit")
-    handle = keyboard.hook(hook)
+    handle = startup_step("HOTKEY", lambda: keyboard.hook(hook))
     def paste(text):
         pyperclip.copy(text)
         keyboard.press_and_release("ctrl+v")
     try:
+        print("PTT READY / F8 DOWN-UP / Esc", flush=True)
+        if check_startup:
+            return
         while True:
             try:
                 async with connect(cfg["url"], ssl=tls, proxy=None,
@@ -214,6 +236,19 @@ async def run(cfg, model):
                     if not await connection(ws, events, session,
                         lambda pcm: transcribe_pcm(model, pcm), paste):
                         return
+            except ssl.SSLCertVerificationError:
+                raise StartupError("TLS_IDENTITY") from None
+            except ssl.SSLError:
+                raise StartupError("TLS_PROTOCOL") from None
+            except InvalidStatus as error:
+                status = error.response.status_code
+                if status in (401, 403, 404):
+                    raise StartupError("WSS_AUTH_OR_ENDPOINT") from None
+                print("接続待ち / WSS サーバー応答待ち。", flush=True)
+            except InvalidHandshake:
+                raise StartupError("WSS_HANDSHAKE") from None
+            except (OSError, asyncio.TimeoutError):
+                print("接続待ち / NETWORK。", flush=True)
             except Exception:
                 # Exception text may contain URLs/headers. Log a fixed, credential-free message.
                 print("接続待ち / 音声セッションを破棄しました。", flush=True)
@@ -232,9 +267,13 @@ async def run(cfg, model):
 
 
 def main():
+    if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
+    parser.add_argument("--check-startup", action="store_true",
+        help="Validate config/TLS/GPU/hotkeys, then exit without connecting or recording")
     args = parser.parse_args()
     # Cross-process singleton before loading the GPU model, even when Deck is pressed repeatedly.
     with socket.socket() as singleton:
@@ -246,17 +285,24 @@ def main():
         except OSError:
             print("PTT クライアントは既に起動しています。", flush=True)
             return
-        cfg = read_config(args.config)
-        cuda_environment()
-        from faster_whisper import WhisperModel
+        cfg = startup_step("CONFIG", lambda: read_config(args.config))
+        startup_step("TLS", lambda: ssl.create_default_context(cafile=cfg["ca_file"]))
+        startup_step("CUDA", cuda_environment)
+        def load_dependencies():
+            import keyboard, pyperclip, numpy
+            from websockets.asyncio.client import connect
+            from faster_whisper import WhisperModel
+            return WhisperModel
+        WhisperModel = startup_step("DEPENDENCIES", load_dependencies)
         print("small / CUDA / float16 読み込み中", flush=True)
-        model = WhisperModel("small", device="cuda", compute_type="float16")
-        asyncio.run(run(cfg, model))
+        model = startup_step("MODEL_CUDA", lambda: WhisperModel("small", device="cuda", compute_type="float16"))
+        asyncio.run(run(cfg, model, args.check_startup))
 
 
 if __name__ == "__main__":
     try:
         main()
-    except Exception:
-        print("PTT 起動失敗。設定・TLS・CUDA 環境を確認してください。", flush=True)
+    except Exception as error:
+        category = str(error) if isinstance(error, StartupError) else "RUNTIME"
+        print("PTT 起動失敗 / " + category, flush=True)
         raise SystemExit(1)  # No raw exception/config/credentials in a startup log.
