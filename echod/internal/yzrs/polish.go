@@ -158,7 +158,7 @@ func weatherLabel(condition string) string {
 
 func (r *Renderer) drawWeather(dst draw.Image, w Weather, now time.Time) {
 	label := weatherLabel(w.Condition)
-	if w.Condition == "" || w.Temp == "" || (!w.Updated.IsZero() && (now.Sub(w.Updated) > 3*time.Hour || w.Updated.After(now.Add(5*time.Minute)))) {
+	if label == "天気情報なし" || w.Temp == "" || (!w.Updated.IsZero() && (now.Sub(w.Updated) > 3*time.Hour || w.Updated.After(now.Add(5*time.Minute)))) {
 		r.center(dst, 250, 319, 676, "天気情報を取得できません", r.normal, muted)
 		return
 	}
@@ -170,7 +170,15 @@ func (r *Renderer) drawWeather(dst draw.Image, w Weather, now time.Time) {
 	x := 250 + (676-width)/2
 	// Small native weather mark, without depending on symbol-font coverage.
 	cx, cy := x+18, 310
-	if w.Condition == "sunny" || w.Condition == "clear-night" {
+	if w.Condition == "clear-night" {
+		for y := cy - 13; y <= cy+13; y++ {
+			for x := cx - 13; x <= cx+13; x++ {
+				if (x-cx)*(x-cx)+(y-cy)*(y-cy) <= 169 && (x-cx-6)*(x-cx-6)+(y-cy+4)*(y-cy+4) > 144 {
+					dst.Set(x, y, cyan)
+				}
+			}
+		}
+	} else if w.Condition == "sunny" {
 		full := 100.0
 		drawRing(dst, cx, cy, 9, 2, &full, cyan)
 		for i := 0; i < 8; i++ {
