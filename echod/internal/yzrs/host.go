@@ -3,6 +3,8 @@ package yzrs
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -34,6 +36,31 @@ type HostMetrics struct {
 	Measured time.Time `json:"measuredAt"`
 	Temp     CodexTemp `json:"codexTemp"`
 	Stale    *bool     `json:"stale"`
+}
+
+var hostTimestamp = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:[Zz]|[+-](\d{2}):(\d{2}))$`)
+
+func (h *HostMetrics) UnmarshalJSON(raw []byte) error {
+	type plain HostMetrics
+	var p plain
+	aux := struct {
+		*plain
+		Stamp string `json:"measuredAt"`
+	}{plain: &p}
+	if json.Unmarshal(raw, &aux) != nil {
+		return fmt.Errorf("invalid host metric")
+	}
+	parts := hostTimestamp.FindStringSubmatch(aux.Stamp)
+	if parts == nil || parts[1] > "23" || parts[2] > "59" {
+		return fmt.Errorf("invalid host metric")
+	}
+	stamp, err := time.Parse(time.RFC3339Nano, strings.ToUpper(aux.Stamp))
+	if err != nil {
+		return fmt.Errorf("invalid host metric")
+	}
+	p.Measured = stamp
+	*h = HostMetrics(p)
+	return nil
 }
 
 func (h *HostMetrics) usable() bool {

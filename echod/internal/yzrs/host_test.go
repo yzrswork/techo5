@@ -48,6 +48,16 @@ func TestHostOptionalValidation(t *testing.T) {
 			t.Fatal("optional invalid host broke TODAY/AI")
 		}
 	}
+	for _, stamp := range []string{"2026-10-08T12:34:00+24:00", "2026-10-08T12:34:00+09:60", "2026-10-08T12:34:00,123+09:00", "2026-02-30T12:34:00Z"} {
+		var root map[string]any
+		json.Unmarshal(hostPayload(t, hostFixture(1)), &root)
+		root["host"].(map[string]any)["measuredAt"] = stamp
+		raw, _ := json.Marshal(root)
+		s, err = Parse(raw, fixtureTime)
+		if err != nil || s.Host != nil {
+			t.Fatal("invalid RFC3339 host timestamp accepted")
+		}
+	}
 	for _, n := range []int64{-1, MaxHostBytes + 1} {
 		s, err = Parse(hostPayload(t, hostFixture(n)), fixtureTime)
 		if err != nil || s.Host != nil {
