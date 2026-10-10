@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image"
 	"testing"
+	"time"
 
 	"golang.org/x/image/font"
 )
@@ -45,6 +46,58 @@ func TestVisualFontCoverageAndFit(t *testing.T) {
 		if advance.Ceil() > 676 || left+bounds.Min.X.Floor() < 250 || left+bounds.Max.X.Ceil() > 926 || 218+bounds.Min.Y.Floor() < 80 || 218+bounds.Max.Y.Ceil() >= 244 {
 			t.Errorf("clock glyph bounds do not fit: %q %v", text, bounds)
 		}
+	}
+}
+
+func TestVaultFreshnessLabelsAndLayout(t *testing.T) {
+	r, err := NewRenderer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	for _, tc := range []struct{ internal, shown string }{
+		{"LIVE", "VAULT OK"},
+		{"STALE", "VAULT STALE"},
+		{"OFFLINE / LKG", "OFFLINE / LKG"},
+		{"NO DATA", "NO DATA"},
+	} {
+		if got := vaultHUDStatus(tc.internal); got != tc.shown {
+			t.Fatalf("Vault HUD status %q -> %q, want %q", tc.internal, got, tc.shown)
+		}
+		if width := font.MeasureString(r.faceFor(tc.shown, r.small), tc.shown).Ceil(); width > hudWidth {
+			t.Fatalf("status does not fit HUD: %q %dpx", tc.shown, width)
+		}
+	}
+	for _, tc := range []struct {
+		generated time.Time
+		stamp     string
+		heading   string
+	}{
+		{time.Date(2026, 10, 10, 23, 55, 0, 0, JST), "SNAP 10/10 23:55", "TODAY / 10月10日の活動"},
+		{time.Date(2026, 1, 1, 8, 0, 0, 0, JST), "SNAP 01/01 08:00", "TODAY / 01月01日の活動"},
+	} {
+		s := &Snapshot{Generated: tc.generated}
+		if got := snapshotLabel(s); got != tc.stamp {
+			t.Fatalf("wrong SNAP label: %q", got)
+		}
+		if got := todayHeading(s); got != tc.heading {
+			t.Fatalf("wrong TODAY date: %q", got)
+		}
+		for _, spec := range []struct {
+			label string
+			width int
+			face  font.Face
+		}{
+			{snapshotLabel(s), hudWidth, r.small},
+			{todayHeading(s), 670, r.normal},
+		} {
+			if width := font.MeasureString(r.faceFor(spec.label, spec.face), spec.label).Ceil(); width > spec.width {
+				t.Fatalf("date label clips: %q width=%d max=%d", spec.label, width, spec.width)
+			}
+		}
+	}
+	if todayHeading(nil) != "TODAY / 活動" {
+		t.Fatal("missing snapshot falsely labeled today")
 	}
 }
 
