@@ -33,4 +33,3 @@ Draft PR #1は未マージ。次のrootfs候補は受入済みimageを基にdaem
 場所設定 `Setagaya City, Tokyo`、Worker/Vault/Token Monitor/Startup/音声/slot/boot/recoveryには手を加えない。
 
 追加提案なし。
-
