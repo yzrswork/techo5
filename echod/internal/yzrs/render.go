@@ -344,6 +344,17 @@ func vaultHUDStatus(status string) string {
 	}
 }
 
+func snapshotLabel(s *Snapshot) string {
+	return "SNAP " + s.Generated.In(JST).Format("01/02 15:04")
+}
+
+func todayHeading(s *Snapshot) string {
+	if s == nil {
+		return "TODAY / 活動"
+	}
+	return "TODAY / " + s.Generated.In(JST).Format("01月02日") + "の活動"
+}
+
 type Frame struct {
 	Now     time.Time
 	Mode    int
@@ -397,7 +408,7 @@ func (r *Renderer) Draw(dst draw.Image, f Frame) {
 	}
 	r.text(dst, hudLeft, 422, hudWidth, vaultHUDStatus(f.Data.Status), r.small, cyan)
 	if f.Data.Snapshot != nil {
-		r.text(dst, hudLeft, 445, hudWidth, "SNAP "+f.Data.Snapshot.Generated.In(JST).Format("01/02 15:04"), r.small, muted)
+		r.text(dst, hudLeft, 445, hudWidth, snapshotLabel(f.Data.Snapshot), r.small, muted)
 	}
 	mode := f.Mode
 	if mode < 0 || mode > 3 {
@@ -410,11 +421,7 @@ func (r *Renderer) Draw(dst draw.Image, f Frame) {
 		r.drawWeather(dst, f.Weather, now)
 	case 1:
 		s := f.Data.Snapshot
-		todayHeader := "TODAY / 活動"
-		if s != nil {
-			todayHeader = "TODAY / " + s.Generated.In(JST).Format("01月02日") + "の活動"
-		}
-		r.text(dst, 256, 100, 670, todayHeader, r.normal, cyan)
+		r.text(dst, 256, 100, 670, todayHeading(s), r.normal, cyan)
 		if s == nil {
 			r.text(dst, 256, 157, 665, "データを取得できません。接続を待っています。", r.normal, muted)
 		} else {
