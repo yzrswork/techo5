@@ -372,7 +372,12 @@ func (r *Renderer) Draw(dst draw.Image, f Frame) {
 	drawRing(dst, hudLeft+hudWidth/2, 200, 43, 5, remaining, gaugeColor)
 	r.center(dst, hudLeft, 198, hudWidth, percent(remaining), r.normal, white)
 	r.center(dst, hudLeft, 256, hudWidth, gaugeStatus, r.small, muted)
-	for i, m := range [][2]string{{"CODEX TEMP", "UNAVAILABLE"}, {"COMMITS", Count(commits)}, {"NOTES", Count(notes)}} {
+	var host *HostMetrics
+	if f.Data.Snapshot != nil {
+		host = f.Data.Snapshot.Host
+	}
+	tempLabel, tempValue := HostDisplay(host, now, f.Data.Status == "OFFLINE / LKG")
+	for i, m := range [][2]string{{tempLabel, tempValue}, {"COMMITS", Count(commits)}, {"NOTES", Count(notes)}} {
 		y := 273 + i*48
 		r.text(dst, hudLeft, y, hudWidth, m[0], r.small, muted)
 		r.text(dst, hudLeft, y+24, hudWidth, m[1], r.normal, white)

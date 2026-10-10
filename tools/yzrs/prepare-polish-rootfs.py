@@ -6,7 +6,7 @@ import pathlib
 import re
 import tarfile
 
-ACCEPTED = "24129b022a835665b8d5111890ab21f1696778df7c0ea072ca5b089c3584fcee"
+ACCEPTED = "53607a6abc9b72fde92511bbb5958ae65026cf7ba7d17f187cc1d18d99abb097"
 DAEMON = "usr/local/bin/techo5"
 RELEASE = "etc/techo5-release"
 

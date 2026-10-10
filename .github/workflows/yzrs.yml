@@ -55,6 +55,8 @@ jobs:
           cache-dependency-path: echod/go.sum
       - name: Portable client tests
         run: |
+          pwsh -NoLogo -NoProfile -File tools/yzrs/test_codex_temp.ps1
+          pwsh -NoLogo -NoProfile -File tools/yzrs/test_operational_sender.ps1
           python -m unittest discover -s tools/yzrs -p test_voice_bridge.py -v
           cd echod
           go test ./internal/yzrs

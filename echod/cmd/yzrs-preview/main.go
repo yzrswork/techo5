@@ -20,6 +20,8 @@ func main() {
 	fixture := flag.String("snapshot", "", "representative or real Worker response")
 	cases := flag.Bool("cases", false, "also render long/empty/offline/unavailable/voice fixture cases")
 	connected := flag.Bool("voice-connected", false, "simulate a connected client for preview only")
+	hostCases := flag.Bool("host-cases", false, "render fresh, zero, stale and unavailable host fixtures")
+	previewNow := flag.String("now", "", "explicit RFC3339 preview clock (for independently updated host data)")
 	flag.Parse()
 	now := time.Now()
 	view := yzrs.View{Status: "NO DATA"}
@@ -31,6 +33,10 @@ func main() {
 		}
 		check(json.Unmarshal(raw, &meta))
 		now = meta.Generated
+		if *previewNow != "" {
+			now, e = time.Parse(time.RFC3339Nano, *previewNow)
+			check(e)
+		}
 		s, e := yzrs.Parse(raw, now)
 		check(e)
 		view = yzrs.View{Snapshot: s, Status: "LIVE"}
@@ -52,6 +58,33 @@ func main() {
 		frame := base
 		frame.Mode = i
 		render(name, frame)
+	}
+	if *hostCases {
+		if view.Snapshot == nil {
+			check(fmt.Errorf("host cases requires a validated snapshot"))
+		}
+		for _, c := range []struct {
+			name   string
+			bytes  int64
+			age    time.Duration
+			absent bool
+		}{
+			{"HOST-fresh-fixture", 1524713390, 0, false},
+			{"HOST-zero-fixture", 0, 0, false},
+			{"HOST-stale-fixture", 1524713390, 16 * time.Minute, false},
+			{"HOST-unavailable-fixture", 0, 0, true},
+		} {
+			s := *view.Snapshot
+			stale := false
+			s.Host = &yzrs.HostMetrics{Version: 1, Source: "windows-codex-temp", Measured: now.Add(-c.age),
+				Temp: yzrs.CodexTemp{Bytes: &c.bytes, Status: "ok"}, Stale: &stale}
+			if c.absent {
+				s.Host = nil
+			}
+			frame := base
+			frame.Data.Snapshot = &s
+			render(c.name, frame)
+		}
 	}
 	if *cases {
 		if view.Snapshot == nil {

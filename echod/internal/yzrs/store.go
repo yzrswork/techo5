@@ -90,6 +90,19 @@ func (s *Store) Fetch(ctx context.Context, now time.Time) (err error) {
 		parsed.AI = &copyAI
 	}
 	// Persist a validated allowlist, never unknown Worker fields. Atomic rename preserves LKG.
+	// Host observations are independent of both TODAY generation time and AI.
+	if previous != nil && previous.Host.usable() &&
+		(parsed.Host == nil || !parsed.Host.usable() || !parsed.Host.Measured.After(previous.Host.Measured)) {
+		copyHost := *previous.Host
+		stale := true
+		// An identical fresh observation remains fresh; KV delivery may repeat it.
+		if parsed.Host != nil && parsed.Host.usable() && parsed.Host.Measured.Equal(copyHost.Measured) &&
+			*parsed.Host.Temp.Bytes == *copyHost.Temp.Bytes && !*parsed.Host.Stale {
+			stale = false
+		}
+		copyHost.Stale = &stale
+		parsed.Host = &copyHost
+	}
 	if e = saveJSON(s.Cache, parsed); e != nil {
 		return errors.New("dashboard cache write failed")
 	}

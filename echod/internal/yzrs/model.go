@@ -53,8 +53,9 @@ type Snapshot struct {
 		Commits  *int64 `json:"commits_since_snapshot"`
 		Projects *int64 `json:"projects"`
 	} `json:"today"`
-	Activity []Activity `json:"activity"`
-	AI       *AI        `json:"ai,omitempty"`
+	Activity []Activity   `json:"activity"`
+	AI       *AI          `json:"ai,omitempty"`
+	Host     *HostMetrics `json:"host,omitempty"`
 }
 
 func Parse(raw []byte, now time.Time) (*Snapshot, error) {
@@ -68,11 +69,13 @@ func Parse(raw []byte, now time.Time) (*Snapshot, error) {
 		return nil, bad
 	}
 	aiRaw := root["ai"]
+	hostRaw := root["host"]
 
 	if activity, ok := root["activity"]; !ok || len(activity) == 0 || activity[0] != '[' {
 		return nil, bad
 	}
 	delete(root, "ai")
+	delete(root, "host")
 	mainRaw, _ := json.Marshal(root)
 	if json.Unmarshal(mainRaw, &s) != nil || s.Version != 1 || s.Generated.IsZero() || s.Generated.After(now.Add(5*time.Minute)) || s.Date != s.Generated.In(JST).Format("2006-01-02") || !shaPattern.MatchString(s.Source.SHA) || s.Source.Window.To != s.Source.SHA || len(s.Activity) > 20 {
 		return nil, bad
@@ -81,6 +84,12 @@ func Parse(raw []byte, now time.Time) (*Snapshot, error) {
 		var ai AI
 		if json.Unmarshal(aiRaw, &ai) == nil {
 			s.AI = &ai
+		}
+	}
+	if len(hostRaw) > 0 {
+		var host HostMetrics
+		if json.Unmarshal(hostRaw, &host) == nil && validHost(&host, now) {
+			s.Host = &host
 		}
 	}
 	if s.Source.Window.From != nil && !shaPattern.MatchString(*s.Source.Window.From) {
