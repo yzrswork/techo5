@@ -98,6 +98,10 @@ func main() {
 		frame.Voice = yzrs.PTTView{Connected: true, Phase: "LISTENING"}
 		frame.Deck = "PAIRED PC READY"
 		render("VOICE-listening-fixture", frame)
+		frame.Voice.Phase = "IDLE"
+		render("VOICE-idle-fixture", frame)
+		frame.Voice.Phase = "TRANSCRIBING"
+		render("VOICE-transcribing-fixture", frame)
 	}
 	fmt.Println("960x480 native frames rendered")
 }

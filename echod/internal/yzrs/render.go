@@ -16,13 +16,15 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-//go:embed assets/MPLUS1p-Regular.ttf
+//go:embed assets/MPLUS1p-Regular.ttf assets/ChakraPetch-Regular.ttf
 var assets embed.FS
 var Modes = [4]string{"CLOCK", "TODAY", "AI", "VOICE"}
 
+const hudLeft, hudWidth = 36, 176
+
 type Renderer struct {
-	normal, small, large font.Face
-	background           *image.RGBA
+	normal, small, large, latin, latinSmall font.Face
+	background                              *image.RGBA
 }
 
 func NewRenderer() (*Renderer, error) {
@@ -34,27 +36,54 @@ func NewRenderer() (*Renderer, error) {
 	if e != nil {
 		return nil, e
 	}
-	face := func(size float64) (font.Face, error) {
-		return opentype.NewFace(f, &opentype.FaceOptions{Size: size, DPI: 72, Hinting: font.HintingFull})
-	}
-	n, e := face(24)
+	rawLatin, e := assets.ReadFile("assets/ChakraPetch-Regular.ttf")
 	if e != nil {
 		return nil, e
 	}
-	s, e := face(16)
+	geometric, e := opentype.Parse(rawLatin)
 	if e != nil {
-		n.Close()
 		return nil, e
 	}
-	l, e := face(112)
-	if e != nil {
-		n.Close()
-		s.Close()
-		return nil, e
+	r := &Renderer{background: newBackground()}
+	for _, spec := range []struct {
+		source *opentype.Font
+		size   float64
+		target *font.Face
+	}{
+		{f, 24, &r.normal}, {f, 16, &r.small}, {geometric, 112, &r.large}, {geometric, 24, &r.latin}, {geometric, 16, &r.latinSmall},
+	} {
+		face, err := opentype.NewFace(spec.source, &opentype.FaceOptions{Size: spec.size, DPI: 72, Hinting: font.HintingFull})
+		if err != nil {
+			r.Close()
+			return nil, err
+		}
+		*spec.target = face
 	}
-	return &Renderer{normal: n, small: s, large: l, background: newBackground()}, nil
+	return r, nil
 }
-func (r *Renderer) Close()                { r.normal.Close(); r.small.Close(); r.large.Close() }
+func (r *Renderer) Close() {
+	for _, face := range []font.Face{r.normal, r.small, r.large, r.latin, r.latinSmall} {
+		if face != nil {
+			face.Close()
+		}
+	}
+}
+
+// Keep complete mixed/Japanese strings on the accepted Japanese face.
+func (r *Renderer) faceFor(text string, face font.Face) font.Face {
+	for _, ch := range text {
+		if ch < 32 || ch > 126 {
+			return face
+		}
+	}
+	if face == r.normal {
+		return r.latin
+	}
+	if face == r.small {
+		return r.latinSmall
+	}
+	return face
+}
 func (r *Renderer) HasGlyph(ch rune) bool { _, _, ok := r.normal.GlyphBounds(ch); return ok }
 
 var navy = color.RGBA{8, 16, 35, 255}
@@ -228,6 +257,14 @@ func newBackground() *image.RGBA {
 		paint(image.Rect(929, y, 945, y+2), trace)
 		paint(image.Rect(927, y-2, 933, y+4), node)
 	}
+	// Soften only the content strip once, retaining perimeter PCB and the main starfield.
+	for y := 22; y < 470; y++ {
+		for x := 28; x < 220; x++ {
+			edge := min(x-28, 219-x, y-22, 469-y)
+			alpha := 0.66 * math.Min(1, float64(edge)/12)
+			background.SetRGBA(x, y, overPixel(background.RGBAAt(x, y), navy, alpha))
+		}
+	}
 	return background
 }
 
@@ -235,6 +272,7 @@ func rect(dst draw.Image, box image.Rectangle, c color.Color) {
 	draw.Draw(dst, box, image.NewUniform(c), image.Point{}, draw.Src)
 }
 func (r *Renderer) text(dst draw.Image, x, y, width int, s string, f font.Face, c color.Color) {
+	f = r.faceFor(s, f)
 	s = strings.Map(func(ch rune) rune {
 		if ch < ' ' || ch == 127 {
 			return ' '
@@ -299,7 +337,7 @@ type Frame struct {
 func (r *Renderer) Draw(dst draw.Image, f Frame) {
 	draw.Draw(dst, image.Rect(0, 0, 960, 480), r.background, image.Point{}, draw.Src)
 	now := f.Now.In(JST)
-	r.text(dst, 24, 40, 175, "YZRS / TECHO5", r.small, cyan)
+	r.text(dst, hudLeft, 40, hudWidth, "YZRS / TECHO5", r.small, cyan)
 	r.text(dst, 256, 42, 560, "PERSONAL DASHBOARD", r.small, muted)
 	r.text(dst, 856, 42, 86, "SETUP", r.small, muted)
 	var tokens, commits, notes *int64
@@ -312,9 +350,9 @@ func (r *Renderer) Draw(dst draw.Image, f Frame) {
 			remaining = s.AI.Codex.Session.Remaining
 		}
 	}
-	r.text(dst, 24, 77, 179, "TOKENS TODAY", r.small, muted)
-	r.text(dst, 24, 105, 179, Count(tokens), r.normal, white)
-	r.text(dst, 24, 140, 179, "LIMIT REMAINING", r.small, muted)
+	r.text(dst, hudLeft, 77, hudWidth, "TOKENS TODAY", r.small, muted)
+	r.text(dst, hudLeft, 105, hudWidth, Count(tokens), r.normal, white)
+	r.text(dst, hudLeft, 140, hudWidth, "LIMIT REMAINING", r.small, muted)
 	gaugeColor := cyan
 	gaugeStatus := "UNAVAILABLE"
 	if f.Data.Snapshot != nil && f.Data.Snapshot.AI != nil {
@@ -323,17 +361,17 @@ func (r *Renderer) Draw(dst draw.Image, f Frame) {
 			gaugeColor = muted
 		}
 	}
-	drawRing(dst, 111, 200, 43, 5, remaining, gaugeColor)
-	r.center(dst, 24, 198, 179, percent(remaining), r.normal, white)
-	r.center(dst, 24, 218, 179, gaugeStatus, r.small, muted)
+	drawRing(dst, hudLeft+hudWidth/2, 200, 43, 5, remaining, gaugeColor)
+	r.center(dst, hudLeft, 198, hudWidth, percent(remaining), r.normal, white)
+	r.center(dst, hudLeft, 218, hudWidth, gaugeStatus, r.small, muted)
 	for i, m := range [][2]string{{"CODEX TEMP", "UNAVAILABLE"}, {"COMMITS", Count(commits)}, {"NOTES", Count(notes)}} {
 		y := 273 + i*48
-		r.text(dst, 24, y, 179, m[0], r.small, muted)
-		r.text(dst, 24, y+24, 179, m[1], r.normal, white)
+		r.text(dst, hudLeft, y, hudWidth, m[0], r.small, muted)
+		r.text(dst, hudLeft, y+24, hudWidth, m[1], r.normal, white)
 	}
-	r.text(dst, 24, 422, 183, f.Data.Status, r.small, cyan)
+	r.text(dst, hudLeft, 422, hudWidth, f.Data.Status, r.small, cyan)
 	if f.Data.Snapshot != nil {
-		r.text(dst, 24, 445, 183, "SYNC "+f.Data.Snapshot.Generated.In(JST).Format("15:04"), r.small, muted)
+		r.text(dst, hudLeft, 445, hudWidth, "SYNC "+f.Data.Snapshot.Generated.In(JST).Format("15:04"), r.small, muted)
 	}
 	mode := f.Mode
 	if mode < 0 || mode > 3 {
@@ -398,10 +436,9 @@ func (r *Renderer) Draw(dst draw.Image, f Frame) {
 		r.text(dst, 256, 215, 665, status, r.normal, muted)
 		r.text(dst, 256, 260, 665, "F8 を押して話す / 離して文字起こし", r.normal, white)
 		r.text(dst, 256, 310, 665, "VOICE は Windows クライアントを起動します。", r.normal, muted)
-		r.text(dst, 256, 360, 665, "DECK / "+f.Deck, r.small, cyan)
 	}
 	if s := f.Data.Snapshot; s != nil && s.AI != nil && !s.AI.Live(now) {
-		r.text(dst, 24, 464, 184, "AI STALE", r.small, muted)
+		r.text(dst, hudLeft, 464, hudWidth, "AI STALE", r.small, muted)
 	}
 	for i, name := range Modes {
 		box := NavBounds(i)

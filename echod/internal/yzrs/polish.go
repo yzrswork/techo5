@@ -17,6 +17,7 @@ type Weather struct {
 }
 
 func (r *Renderer) center(dst draw.Image, x, y, width int, text string, face font.Face, c color.Color) {
+	face = r.faceFor(text, face)
 	r.text(dst, x+max(0, (width-font.MeasureString(face, text).Ceil())/2), y, width, text, face, c)
 }
 
