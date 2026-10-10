@@ -35,8 +35,9 @@ func init() {
 
 // Weather is what the clock shows.
 type Weather struct {
-	Condition string // Home Assistant's state: "partlycloudy", "rain"…
-	Temp      string // "75°" already formatted, empty when unknown
+	Updated   time.Time // Nonzero for a cached own-weather reading.
+	Condition string    // Home Assistant's state: "partlycloudy", "rain"…
+	Temp      string    // "75°" already formatted, empty when unknown
 }
 
 // Radio is what the radio page shows.

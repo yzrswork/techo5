@@ -100,6 +100,8 @@ const (
 )
 
 type Display struct {
+	yzrsOnScreen bool // guarded by mu, matching the frame receiving touches
+
 	// holdsMu makes reading whether holds are wanted and telling the touchscreen one step (applyHolds).
 	holdsMu sync.Mutex
 
@@ -1038,6 +1040,13 @@ func (d *Display) gesture(g touch.Gesture) {
 	if d.calendarUp() {
 		d.calendarGesture(g)
 		d.wake()
+		return
+	}
+	d.mu.Lock()
+	yzrsUp := d.yzrsOnScreen && d.view.Phase == "idle"
+	d.mu.Unlock()
+	if yzrsUp && g.Kind == touch.Tap {
+		d.yzrsTap(g.X, g.Y)
 		return
 	}
 	switch g.Kind {
@@ -2188,6 +2197,9 @@ func (d *Display) frame() time.Duration {
 	d.mu.Unlock()
 
 	if s.showVideo && s.videoLive {
+		d.mu.Lock()
+		d.yzrsOnScreen = false // video frames bypass the regular YZRS render path
+		d.mu.Unlock()
 		// The picture's own frames go to the panel (paintVideo); the canvas holds only the controls.
 		d.r.draw(s)
 		d.videoPainting, d.videoOver = true, d.r.videoOver
@@ -2206,6 +2218,9 @@ func (d *Display) frame() time.Duration {
 	} else {
 		d.deckDrawn = key
 	}
+	d.mu.Lock()
+	d.yzrsOnScreen = d.r.w == 960 && d.r.h == 480 && showYZRS(s)
+	d.mu.Unlock()
 	d.r.draw(s)
 	if err := d.dev.Present(); err != nil {
 		slog.Warn("presenting the frame failed", "err", err)

@@ -1,0 +1,14 @@
+{
+ "schema_version":1,
+ "data_date":"2026-10-08",
+ "generated_at":"2026-10-08T12:34:00+09:00",
+ "source":{"repository":"example/vault","main_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","commit_window":{"from_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","to_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","from_generated_at":"2026-10-08T11:34:00+09:00"}},
+ "today":{"notes_total":2101,"new_notes":1,"commits_since_snapshot":4,"projects":10,"open_prs":{"numbers":[],"count":0}},
+ "activity":[
+  {"occurred_at":"2026-10-08T12:30:00+09:00","kind":"curated","title":"日本語ダッシュボードの描画確認"},
+  {"occurred_at":"2026-10-08T12:20:00+09:00","kind":"work_note_updated","title":"音声入力の接続と復帰を検証"},
+  {"occurred_at":"2026-10-08T12:10:00+09:00","kind":"pr_merged","title":"今日の活動を同期しました"}
+ ],
+ "next":{"featured":null,"active":[],"active_total":0},
+ "ai":{"source":"token-monitor","updatedAt":"2026-10-08T12:33:00+09:00","codex":{"plan":"Example","status":"ok","stale":false,"todayTokens":123456,"session":{"remainingPercent":75,"resetsAt":"2026-10-08T16:00:00+09:00"},"weekly":{"remainingPercent":60,"resetsAt":"2026-10-12T09:00:00+09:00"}}}
+}
