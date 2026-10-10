@@ -10,11 +10,13 @@
 Everyday Japanese glyphs are checked by the renderer test. Width truncation uses Unicode runes and
 an ellipsis. Symbols outside the font are rendered as `?` rather than missing-glyph boxes.
 
-# Geometric Latin/numeric font (Operational Polish 02)
+# Selected Latin/numeric font (Operational Polish 02)
 
-- Chakra Petch Regular, unmodified, 78,488 bytes.
-- License: SIL Open Font License 1.1, bundled as `ChakraPetch-OFL.txt` including copyright.
-- Pinned source: https://github.com/google/fonts/tree/bd8f81ddb5c74d5c8897b36ad88b440266245103/ofl/chakrapetch
-- SHA256: 98fcd638baa5c81ff0316b7538ce330ee3b23b1302726de3526d5933a8ecf986
-- Used at 112px for clock digits and 24px/16px for wholly ASCII metrics/labels. Mixed/Japanese strings retain M PLUS 1p, including missing-value em dash.
-- Source does not come from an installed application. The license and upstream font are redistributed together; the font is not sold separately.
+- Owner selected Candidate A: Inter v4.1, unmodified static TTFs from the official release.
+- Source: https://github.com/rsms/inter/releases/tag/v4.1
+- License: SIL Open Font License 1.1, included as `Inter-OFL.txt` with copyright.
+- Clock: `Inter-SemiBold.ttf` (weight 600), 419,744 bytes, SHA256 `78a843fade9d4612a5567302fb595b56976eb5fcebf4fea5a5912d638bafcde3`.
+- ASCII labels/metrics: `Inter-Medium.ttf` (weight 500), 417,300 bytes, SHA256 `97ad806f526e41546d46365bb3a393145f75b7b1568913db74549ad8b8dba872`.
+- Fixed sizes: clock 112px, ASCII 24px/16px. Mixed/Japanese strings retain M PLUS 1p.
+- Default numerals are proportional. Existing whole-string centering remains in use; no OpenType feature subsystem is introduced.
+- Fonts do not come from an installed application. Copyright and OFL must accompany binary redistribution, including future rootfs images.

@@ -37,9 +37,12 @@ func TestVisualFontCoverageAndFit(t *testing.T) {
 			t.Errorf("HUD clips %q: %d", text, width)
 		}
 	}
-	for _, text := range []string{"00:00", "12:34", "23:59"} {
+	for _, text := range []string{"00:00", "08:35", "11:11", "12:34", "17:38", "23:59"} {
 		bounds, advance := font.BoundString(r.large, text)
-		if advance.Ceil() > 676 || bounds.Min.X.Floor() < 0 || bounds.Min.Y.Floor() < -112 || bounds.Max.Y.Ceil() > 0 {
+		left := 250 + max(0, (676-advance.Ceil())/2)
+		// Curved digits may extend below the baseline; validate the actual
+		// clock area above the date rather than requiring zero overshoot.
+		if advance.Ceil() > 676 || left+bounds.Min.X.Floor() < 250 || left+bounds.Max.X.Ceil() > 926 || 218+bounds.Min.Y.Floor() < 80 || 218+bounds.Max.Y.Ceil() >= 244 {
 			t.Errorf("clock glyph bounds do not fit: %q %v", text, bounds)
 		}
 	}

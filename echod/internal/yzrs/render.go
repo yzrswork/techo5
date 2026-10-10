@@ -16,7 +16,7 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-//go:embed assets/MPLUS1p-Regular.ttf assets/ChakraPetch-Regular.ttf
+//go:embed assets/MPLUS1p-Regular.ttf assets/Inter-SemiBold.ttf assets/Inter-Medium.ttf
 var assets embed.FS
 var Modes = [4]string{"CLOCK", "TODAY", "AI", "VOICE"}
 
@@ -36,11 +36,19 @@ func NewRenderer() (*Renderer, error) {
 	if e != nil {
 		return nil, e
 	}
-	rawLatin, e := assets.ReadFile("assets/ChakraPetch-Regular.ttf")
+	rawLatin, e := assets.ReadFile("assets/Inter-SemiBold.ttf")
 	if e != nil {
 		return nil, e
 	}
-	geometric, e := opentype.Parse(rawLatin)
+	clockFont, e := opentype.Parse(rawLatin)
+	if e != nil {
+		return nil, e
+	}
+	rawLabels, e := assets.ReadFile("assets/Inter-Medium.ttf")
+	if e != nil {
+		return nil, e
+	}
+	labelFont, e := opentype.Parse(rawLabels)
 	if e != nil {
 		return nil, e
 	}
@@ -50,7 +58,7 @@ func NewRenderer() (*Renderer, error) {
 		size   float64
 		target *font.Face
 	}{
-		{f, 24, &r.normal}, {f, 16, &r.small}, {geometric, 112, &r.large}, {geometric, 24, &r.latin}, {geometric, 16, &r.latinSmall},
+		{f, 24, &r.normal}, {f, 16, &r.small}, {clockFont, 112, &r.large}, {labelFont, 24, &r.latin}, {labelFont, 16, &r.latinSmall},
 	} {
 		face, err := opentype.NewFace(spec.source, &opentype.FaceOptions{Size: spec.size, DPI: 72, Hinting: font.HintingFull})
 		if err != nil {
