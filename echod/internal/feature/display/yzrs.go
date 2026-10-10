@@ -21,7 +21,7 @@ func showYZRS(s scene) bool {
 		!s.showSheet && !s.showWifi && !s.showDrawer && !s.showCamera && !s.showDeck && !s.showDash &&
 		!s.pin.open && !s.setupAsking && !s.bt.Pairing && !s.redClock && !s.showReminder &&
 		!s.showAnnouncement && !s.announceRecording && s.popup == nil && !s.showAlert && !s.showCalendar &&
-		!s.showWeather && !s.showRadar
+		!s.showWeather && !s.showRadar && !s.showVideo && !s.showVideoAsk
 }
 func (r *renderer) drawYZRS(s scene) bool {
 	if r.w != 960 || r.h != 480 || !showYZRS(s) {
