@@ -352,7 +352,8 @@ func todayHeading(s *Snapshot) string {
 	if s == nil {
 		return "TODAY / 活動"
 	}
-	return "TODAY / " + s.Generated.In(JST).Format("01月02日") + "の活動"
+	local := s.Generated.In(JST)
+	return fmt.Sprintf("TODAY / %d月%d日の活動", int(local.Month()), local.Day())
 }
 
 type Frame struct {
