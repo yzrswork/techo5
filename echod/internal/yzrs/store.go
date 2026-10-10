@@ -111,6 +111,29 @@ func (s *Store) Fetch(ctx context.Context, now time.Time) (err error) {
 	s.mu.Unlock()
 	return nil
 }
+// vaultSnapshotDeadline is the first scheduled Vault publication strictly after
+// the accepted snapshot, plus the operational grace period. Scheduled times
+// are JST (08:00, 12:00, 16:00, 20:00, 23:55), not the Worker GET cadence.
+// Manual/push snapshots use the same rule based on their actual generated_at.
+func vaultSnapshotDeadline(generated time.Time) time.Time {
+	local := generated.In(JST)
+	midnight := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, JST)
+	for _, offset := range [...]time.Duration{
+		8 * time.Hour,
+		12 * time.Hour,
+		16 * time.Hour,
+		20 * time.Hour,
+		23*time.Hour + 55*time.Minute,
+	} {
+		scheduled := midnight.Add(offset)
+		if scheduled.After(local) {
+			return scheduled.Add(time.Hour)
+		}
+	}
+	// The last daily slot has passed; the next one is 08:00 tomorrow.
+	return midnight.AddDate(0, 0, 1).Add(9 * time.Hour)
+}
+
 func (s *Store) View(now time.Time) View {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -119,7 +142,7 @@ func (s *Store) View(now time.Time) View {
 		v.Status = "LIVE"
 		if s.failed {
 			v.Status = "OFFLINE / LKG"
-		} else if now.Sub(s.snapshot.Generated) > 2*time.Hour || s.snapshot.Date != now.In(JST).Format("2006-01-02") {
+		} else if now.After(vaultSnapshotDeadline(s.snapshot.Generated)) {
 			v.Status = "STALE"
 		}
 	}
