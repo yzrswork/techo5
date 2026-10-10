@@ -74,7 +74,7 @@ func TestVaultFreshnessLabelsAndLayout(t *testing.T) {
 		heading   string
 	}{
 		{time.Date(2026, 10, 10, 23, 55, 0, 0, JST), "SNAP 10/10 23:55", "TODAY / 10月10日の活動"},
-		{time.Date(2026, 1, 1, 8, 0, 0, 0, JST), "SNAP 01/01 08:00", "TODAY / 01月01日の活動"},
+		{time.Date(2026, 1, 1, 8, 0, 0, 0, JST), "SNAP 01/01 08:00", "TODAY / 1月1日の活動"},
 	} {
 		s := &Snapshot{Generated: tc.generated}
 		if got := snapshotLabel(s); got != tc.stamp {
