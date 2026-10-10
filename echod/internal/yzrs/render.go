@@ -331,6 +331,19 @@ func aiStatus(a *AI, now time.Time, dataStatus string) string {
 	return "STALE"
 }
 
+// vaultHUDStatus qualifies the Vault-only freshness state without changing
+// internal LIVE/STALE/OFFLINE/LKG semantics used by AI and HOST.
+func vaultHUDStatus(status string) string {
+	switch status {
+	case "LIVE":
+		return "VAULT OK"
+	case "STALE":
+		return "VAULT STALE"
+	default:
+		return status
+	}
+}
+
 type Frame struct {
 	Now     time.Time
 	Mode    int
@@ -382,9 +395,9 @@ func (r *Renderer) Draw(dst draw.Image, f Frame) {
 		r.text(dst, hudLeft, y, hudWidth, m[0], r.small, muted)
 		r.text(dst, hudLeft, y+24, hudWidth, m[1], r.normal, white)
 	}
-	r.text(dst, hudLeft, 422, hudWidth, f.Data.Status, r.small, cyan)
+	r.text(dst, hudLeft, 422, hudWidth, vaultHUDStatus(f.Data.Status), r.small, cyan)
 	if f.Data.Snapshot != nil {
-		r.text(dst, hudLeft, 445, hudWidth, "SYNC "+f.Data.Snapshot.Generated.In(JST).Format("15:04"), r.small, muted)
+		r.text(dst, hudLeft, 445, hudWidth, "SNAP "+f.Data.Snapshot.Generated.In(JST).Format("01/02 15:04"), r.small, muted)
 	}
 	mode := f.Mode
 	if mode < 0 || mode > 3 {
@@ -396,14 +409,18 @@ func (r *Renderer) Draw(dst draw.Image, f Frame) {
 		r.center(dst, 250, 269, 676, now.Format("2006年01月02日")+"  "+[]string{"日", "月", "火", "水", "木", "金", "土"}[now.Weekday()]+"曜日", r.normal, muted)
 		r.drawWeather(dst, f.Weather, now)
 	case 1:
-		r.text(dst, 256, 100, 670, "TODAY / 今日の活動", r.normal, cyan)
 		s := f.Data.Snapshot
+		todayHeader := "TODAY / 活動"
+		if s != nil {
+			todayHeader = "TODAY / " + s.Generated.In(JST).Format("01月02日") + "の活動"
+		}
+		r.text(dst, 256, 100, 670, todayHeader, r.normal, cyan)
 		if s == nil {
 			r.text(dst, 256, 157, 665, "データを取得できません。接続を待っています。", r.normal, muted)
 		} else {
 			r.text(dst, 256, 145, 665, "NOTES +"+Count(s.Today.NewNotes)+"   COMMITS "+Count(s.Today.Commits), r.normal, white)
 			if len(s.Activity) == 0 {
-				r.text(dst, 256, 195, 665, "今日の活動はまだありません。", r.normal, muted)
+				r.text(dst, 256, 195, 665, "この日の活動はありません。", r.normal, muted)
 			}
 			for i, a := range s.Activity {
 				if i >= 3 {
