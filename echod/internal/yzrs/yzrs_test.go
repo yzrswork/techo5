@@ -99,10 +99,86 @@ func TestStoreLKGAndRecovery(t *testing.T) {
 	if st.Fetch(context.Background(), fixtureTime) != nil || st.View(fixtureTime).Status != "LIVE" {
 		t.Fatal("network recovery failed")
 	}
-	if st.View(fixtureTime.Add(3*time.Hour)).Status != "STALE" {
-		t.Fatal("snapshot age missing")
+	if st.View(fixtureTime.Add(3*time.Hour)).Status != "LIVE" || st.View(time.Date(2026, 10, 8, 17, 0, 0, 0, JST)).Status != "LIVE" {
+		t.Fatal("scheduled snapshot incorrectly stale while still within grace")
+	}
+	if st.View(time.Date(2026, 10, 8, 17, 0, 1, 0, JST)).Status != "STALE" {
+		t.Fatal("missing scheduled snapshot deadline")
 	}
 }
+// Scheduled Vault snapshots are published at 08:00, 12:00, 16:00,
+// 20:00 and 23:55 JST. An extra hour is a bounded operational grace,
+// not a guarantee that GitHub Actions runs within that time.
+func TestVaultSnapshotScheduledFreshness(t *testing.T) {
+	jst := func(day, hour, minute, second int) time.Time {
+		return time.Date(2026, 10, day, hour, minute, second, 0, JST)
+	}
+	cases := []struct {
+		name       string
+		generated  time.Time
+		checked    time.Time
+		wantStatus string
+	}{
+		{"08 to 10:01 remains fresh", jst(10, 8, 0, 0), jst(10, 10, 1, 0), "LIVE"},
+		{"08 deadline inclusive 13:00", jst(10, 8, 0, 0), jst(10, 13, 0, 0), "LIVE"},
+		{"08 deadline exceeded", jst(10, 8, 0, 0), jst(10, 13, 0, 1), "STALE"},
+		{"12 to 16 due", jst(10, 12, 0, 0), jst(10, 17, 0, 1), "STALE"},
+		{"16 to 20 due", jst(10, 16, 0, 0), jst(10, 21, 0, 0), "LIVE"},
+		{"20 to 23:55 due", jst(10, 20, 0, 0), jst(11, 0, 55, 0), "LIVE"},
+		{"20 deadline exceeded after midnight", jst(10, 20, 0, 0), jst(11, 0, 55, 1), "STALE"},
+		{"23:55 not stale at midnight", jst(10, 23, 55, 0), jst(11, 0, 0, 0), "LIVE"},
+		{"23:55 fresh until next 09:00", jst(10, 23, 55, 0), jst(11, 9, 0, 0), "LIVE"},
+		{"23:55 next deadline exceeded", jst(10, 23, 55, 0), jst(11, 9, 0, 1), "STALE"},
+		{"scheduled exact time uses next slot", jst(10, 8, 0, 0), jst(10, 9, 1, 0), "LIVE"},
+		{"manual just before slot", jst(10, 7, 59, 59), jst(10, 9, 0, 1), "STALE"},
+		{"manual after slot", jst(10, 8, 23, 0), jst(10, 13, 0, 1), "STALE"},
+		{"delayed or pushed snapshot", jst(11, 3, 55, 0), jst(11, 9, 0, 0), "LIVE"},
+		{"stale stays stale at later scheduled slot", jst(10, 8, 0, 0), jst(11, 16, 0, 0), "STALE"},
+		{"new manual snapshot recovers", jst(11, 9, 10, 0), jst(11, 9, 11, 0), "LIVE"},
+		{"year rollover stays fresh", time.Date(2026, 12, 31, 23, 55, 0, 0, JST), time.Date(2027, 1, 1, 0, 0, 0, 0, JST), "LIVE"},
+		{"year rollover eventual expiry", time.Date(2026, 12, 31, 23, 55, 0, 0, JST), time.Date(2027, 1, 1, 9, 0, 1, 0, JST), "STALE"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			st := &Store{snapshot: &Snapshot{Generated: tc.generated, Date: tc.generated.In(JST).Format("2006-01-02")}}
+			if got := st.View(tc.checked).Status; got != tc.wantStatus {
+				t.Fatalf("got %s, want %s; generated=%v checked=%v deadline=%v", got, tc.wantStatus, tc.generated, tc.checked, vaultSnapshotDeadline(tc.generated))
+			}
+		})
+	}
+	st := &Store{}
+	if got := st.View(jst(11, 12, 0, 0)).Status; got != "NO DATA" {
+		t.Fatalf("missing snapshot got %s", got)
+	}
+	st.snapshot = &Snapshot{Generated: jst(10, 8, 0, 0)}
+	st.failed = true
+	if got := st.View(jst(11, 12, 0, 0)).Status; got != "OFFLINE / LKG" {
+		t.Fatalf("failed fetch must override staleness, got %s", got)
+	}
+}
+
+func TestVaultFreshnessDoesNotMaskOptionalMeasurements(t *testing.T) {
+	s, err := Parse(hostPayload(t, hostFixture(346911)), fixtureTime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := &Store{snapshot: s}
+	// The Vault can be stale while independent AI/HOST measurements are
+	// still fresh; their state must never be derived from the Vault label.
+	s.Generated = fixtureTime.Add(-7 * time.Hour)
+	s.Date = s.Generated.In(JST).Format("2006-01-02")
+	if got := st.View(fixtureTime).Status; got != "STALE" {
+		t.Fatalf("Vault status got %s", got)
+	}
+	if aiStatus(s.AI, fixtureTime, st.View(fixtureTime).Status) != "LIVE" {
+		t.Fatal("Vault staleness incorrectly marked fresh AI unavailable")
+	}
+	label, value := HostDisplay(s.Host, fixtureTime, false)
+	if label != "CODEX TEMP" || value != "<1 MB" {
+		t.Fatalf("Vault staleness incorrectly changed HOST: %s %s", label, value)
+	}
+}
+
 func TestNativeJapaneseRenderer(t *testing.T) {
 	r, e := NewRenderer()
 	if e != nil {
