@@ -406,6 +406,9 @@ func (r *renderer) draw(s scene) {
 	defer r.publishCameraTaps()
 	r.setPopupAt(image.Rectangle{})
 	r.clearAlertTaps()
+	if r.drawYZRS(s) {
+		return
+	}
 	// The red night clock is the whole screen: nothing else, not even the header, is drawn over it,
 	// and it stays up while an alarm or a timer rings (a tap on it stops the ring). A call has lifted
 	// the night light and takes the screen; a turn, a camera, an announcement or a reminder is shown in
