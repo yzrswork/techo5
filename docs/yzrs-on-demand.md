@@ -6,7 +6,7 @@
 
 1. 既存のread tokenでWorker `GET /dashboard`を1回実行。Vault生成時刻はそのまま保持し、GitHub Actionsは起動しない。
 2. 既存のPC IP制限・bearer認証・証明書検証付きTLS `/ptt` WebSocketで、固定操作 `dashboard_refresh` とランダム32桁IDを送る。PCが未接続なら直ちに失敗し、接続済みの場合も55秒で打ち切る。
-3. WindowsはAIの既存Token Monitor extractorとHOST `-MeasureOnly`を並列実行（20秒/30秒上限）。GPU文字起こしとheartbeatは継続する。新しいcommand/service/public endpointは作らない。
+3. WindowsはAIの既存Token Monitor extractorとHOST `-MeasureOnly`を並列実行（20秒/30秒上限）。実測時刻を変更せず、端末時計が追い付くための2秒の送信bufferを入れる。測定task内の非同期待機なのでGPU文字起こし・F8・heartbeatは継続する。新しいcommand/service/public endpointは作らない。
 4. 同じWebSocketで `dashboard_result`、ID、native AI/HOST allowlistを返す。ID一致、タップ開始以降の実測時刻、未来不可、schema、status、独立した単調増加を確認し、検証済みローカルキャッシュへ原子的に保存する。
 5. 失敗・古い結果・欠落したlaneは前回値をstaleとして残す。値や生成時刻を捏造しない。Worker失敗時も前回TODAYが残る。無限再試行・完了確認のCloudflare pollingはない。
 

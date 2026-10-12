@@ -215,7 +215,12 @@ async def measure_dashboard(base=None, collector=_measure_lane):
             return name, None
     values = await asyncio.wait_for(asyncio.gather(
         lane("ai", ai_script, 20), lane("host", base / "send-host-metrics.ps1", 30)), 55)
-    return {name: value for name, value in values if value is not None}
+    result = {name: value for name, value in values if value is not None}
+    if result:
+        # Keep real observation timestamps. A bounded delivery buffer lets the
+        # device clock catch up without accepting future data or blocking voice.
+        await asyncio.sleep(2)
+    return result
 
 
 async def connection(ws, events, session, transcribe, paste, measure=measure_dashboard):

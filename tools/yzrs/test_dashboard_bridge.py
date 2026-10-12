@@ -18,6 +18,15 @@ AI = {'source': 'token-monitor', 'updatedAt': STAMP, 'codex': {
     'weekly': {'remainingPercent': 60, 'resetsAt': STAMP}}}
 
 class LaneTests(unittest.IsolatedAsyncioTestCase):
+    async def test_delivery_buffer_preserves_real_timestamps(self):
+        async def collector(path, timeout):
+            return AI if path.name == 'send-ai-usage.ps1' else HOST
+        with patch('voice_bridge.asyncio.sleep', new_callable=AsyncMock) as settle:
+            result = await measure_dashboard('fixture', collector)
+            settle.assert_awaited_once_with(2)
+        self.assertEqual(result['ai']['updatedAt'], STAMP)
+        self.assertEqual(result['host']['measuredAt'], STAMP)
+
     async def test_lanes_independent_and_deadlines(self):
         calls = []
         async def collector(path, timeout):
