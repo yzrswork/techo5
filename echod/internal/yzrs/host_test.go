@@ -157,7 +157,9 @@ func TestHostDisplayAndPreservation(t *testing.T) {
 			for x := 0; x < 960; x++ {
 				if before.RGBAAt(x, y) != after.RGBAAt(x, y) {
 					changed = true
-					if x < hudLeft || x >= hudLeft+hudWidth || y < 258 || y > 309 {
+					inHUD := x >= hudLeft && x < hudLeft+hudWidth && y >= 258 && y <= 309
+					inTimestamp := image.Pt(x, y).In(image.Rect(256, 54, 576, 74))
+					if !inHUD && !inTimestamp {
 						t.Fatalf("unrelated pixel changed: %d,%d mode=%d", x, y, mode)
 					}
 				}

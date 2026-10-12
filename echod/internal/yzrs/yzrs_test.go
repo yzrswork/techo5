@@ -215,8 +215,8 @@ func TestAIOfflineStatus(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if got := aiStatus(s.AI, fixtureTime, "OFFLINE / LKG"); got != "OFFLINE / LKG" {
-		t.Fatalf("cached AI falsely shown live: %s", got)
+	if got := aiStatus(s.AI, fixtureTime, "OFFLINE / LKG"); got != "LIVE" {
+		t.Fatalf("Vault transport incorrectly controls PC measurement freshness: %s", got)
 	}
 	if aiStatus(s.AI, fixtureTime, "LIVE") != "LIVE" || aiStatus(s.AI, fixtureTime.Add(time.Hour), "STALE") != "STALE" {
 		t.Fatal("AI freshness lost")

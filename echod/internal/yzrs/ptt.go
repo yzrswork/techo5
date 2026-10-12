@@ -2,8 +2,11 @@ package yzrs
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
 	"encoding/binary"
+	"encoding/hex"
+	"errors"
 	"net"
 	"net/http"
 	"regexp"
@@ -25,6 +28,8 @@ type PTT struct {
 	mu                  sync.Mutex
 	connected           bool
 	phase               string
+	metricRequests      chan *metricRequest
+	connectionDone      <-chan struct{}
 }
 
 func (p *PTT) View() PTTView {
@@ -41,6 +46,49 @@ func (p *PTT) setPhase(s string) { p.mu.Lock(); p.phase = s; p.mu.Unlock() }
 type command struct {
 	Op string `json:"op"`
 	ID string `json:"id"`
+}
+
+type incomingCommand struct {
+	command
+	Metrics
+}
+type metricRequest struct {
+	id     string
+	ctx    context.Context
+	result chan Metrics
+}
+
+// RequestMetrics uses the existing PC-IP-restricted authenticated TLS connection.
+// It carries no command strings, and disconnect or timeout ends the request.
+func (p *PTT) RequestMetrics(ctx context.Context) (Metrics, error) {
+	inner, cancel := context.WithTimeout(ctx, 55*time.Second)
+	defer cancel()
+	p.mu.Lock()
+	requests, done := p.metricRequests, p.connectionDone
+	p.mu.Unlock()
+	if requests == nil {
+		return Metrics{}, errors.New("PC unavailable")
+	}
+	var id [16]byte
+	if _, err := rand.Read(id[:]); err != nil {
+		return Metrics{}, errors.New("refresh unavailable")
+	}
+	job := &metricRequest{id: hex.EncodeToString(id[:]), ctx: inner, result: make(chan Metrics, 1)}
+	select {
+	case requests <- job:
+	case <-done:
+		return Metrics{}, errors.New("PC disconnected")
+	case <-inner.Done():
+		return Metrics{}, errors.New("PC timeout")
+	}
+	select {
+	case result := <-job.result:
+		return result, nil
+	case <-done:
+		return Metrics{}, errors.New("PC disconnected")
+	case <-inner.Done():
+		return Metrics{}, errors.New("PC timeout")
+	}
 }
 
 var sessionID = regexp.MustCompile(`^[a-f0-9]{32}$`)
@@ -82,13 +130,18 @@ func (p *PTT) Handler(ctx context.Context) http.Handler {
 		}
 		inner, cancel := context.WithCancel(ctx)
 		defer cancel()
-		commands := make(chan command, 8)
-		conn.SetReadLimit(512)
+		requests := make(chan *metricRequest, 1)
+		p.mu.Lock()
+		p.metricRequests, p.connectionDone = requests, inner.Done()
+		p.mu.Unlock()
+		defer func() { p.mu.Lock(); p.metricRequests = nil; p.connectionDone = nil; p.mu.Unlock() }()
+		commands := make(chan incomingCommand, 8)
+		conn.SetReadLimit(16 * 1024)
 		go func() {
 			defer cancel()
 			for {
 				_ = conn.SetReadDeadline(time.Now().Add(lease))
-				var c command
+				var c incomingCommand
 				if conn.ReadJSON(&c) != nil {
 					return
 				}
@@ -121,6 +174,7 @@ func (p *PTT) Handler(ctx context.Context) http.Handler {
 		}
 		defer stop()
 		var id, lastID string
+		var pending *metricRequest
 		var deadline <-chan time.Time
 		var timer *time.Timer
 		defer func() {
@@ -142,6 +196,11 @@ func (p *PTT) Handler(ctx context.Context) http.Handler {
 				}
 			case c := <-commands:
 				switch c.Op {
+				case "dashboard_result":
+					if pending != nil && c.ID == pending.id && pending.ctx.Err() == nil {
+						pending.result <- c.Metrics
+						pending = nil
+					}
 				case "ping":
 					if !send("pong", "") {
 						return
@@ -195,6 +254,17 @@ func (p *PTT) Handler(ctx context.Context) http.Handler {
 						return
 					}
 				default:
+					return
+				}
+			case job := <-requests:
+				if job.ctx.Err() != nil {
+					continue
+				}
+				if pending != nil && pending.ctx.Err() == nil {
+					continue
+				}
+				pending = job
+				if !send("dashboard_refresh", job.id) {
 					return
 				}
 			case frame, ok := <-frames:
