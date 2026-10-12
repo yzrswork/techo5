@@ -134,7 +134,7 @@ def check_vad():
 
 async def _measure_lane(script, timeout, powershell=None):
     """Capture only MeasureOnly JSON; never log subprocess output or exceptions."""
-    executable = powershell or shutil.which("pwsh")
+    executable = powershell or os.environ.get("YZRS_DASHBOARD_POWERSHELL") or shutil.which("pwsh")
     if not executable or not script.is_file():
         return None
     process = None

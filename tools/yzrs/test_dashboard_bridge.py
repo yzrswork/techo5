@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -30,6 +31,24 @@ class LaneTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result['host']['stale'])
         self.assertNotIn('privateIdentity', result['host'])
         self.assertCountEqual(calls, [('send-ai-usage.ps1', 20), ('send-host-metrics.ps1', 30)])
+
+    async def test_collector_path_survives_empty_path_and_explicit_override(self):
+        class Process:
+            returncode = 0
+            async def communicate(self):
+                return json.dumps(HOST).encode(), b""
+        with tempfile.TemporaryDirectory() as folder:
+            script = Path(folder) / "sender.ps1"
+            script.touch()
+            executable = str(Path(folder) / "PowerShell 7" / "pwsh.exe")
+            with patch.dict(os.environ, {"PATH": "", "YZRS_DASHBOARD_POWERSHELL": executable}), \
+                    patch("voice_bridge.shutil.which", return_value=None) as discover, \
+                    patch("voice_bridge.asyncio.create_subprocess_exec", AsyncMock(return_value=Process())) as spawn:
+                self.assertEqual(await _measure_lane(script, 1), HOST)
+                self.assertEqual(spawn.call_args.args[0], executable)
+                discover.assert_not_called()
+                self.assertEqual(await _measure_lane(script, 1, "explicit-pwsh"), HOST)
+                self.assertEqual(spawn.call_args.args[0], "explicit-pwsh")
 
     async def test_subprocess_timeout_and_cancel_reap_without_output(self):
         class Process:
