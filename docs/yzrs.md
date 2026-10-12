@@ -53,7 +53,7 @@ Worker の既存 `GET /dashboard` を read token だけで取得する。
 合成済み `ai.source / updatedAt / codex` を利用する。AI POST・snapshot publish・refresh token は不要。
 Worker、KV、Token Monitor、sender、Actions は変更しない。
 
-- 取得間隔: 60秒、1件ずつ、HTTP timeout 8秒。リダイレクトは禁止。
+- 取得は右上の「更新」を明示タップしたときだけ1回。起動時・待機中・タブ切替でGETしない。HTTP timeout 8秒、リダイレクトは禁止。詳細は[完全オンデマンド更新](yzrs-on-demand.md)。
 - 最大応答: 128 KiB。未知フィールドを保存せず、検証済みの表示モデルだけを保存。
 - LKG: `/data/misc/techo5/yzrs-dashboard.json`、一時ファイル→sync→rename。
 - Snapshot予定: JST **08:00 / 12:00 / 16:00 / 20:00 / 23:55**。実際の生成時刻（`generated_at`）はscheduled/push/manualごとに変わり得る。
@@ -63,9 +63,9 @@ Worker、KV、Token Monitor、sender、Actions は変更しない。
 - `SNAP MM/DD HH:mm`はVaultデータの**生成時刻**（JST）を表示。Worker GETの通信成功時刻ではない。TODAYの見出しもsnapshotの対象日（M月D日）を表示する。
 - `OFFLINE / LKG`: 取得・検証・保存失敗、または再起動後で未取得。これは`VAULT STALE`より優先し、名前と挙動は変更しない。
 - `NO DATA`: 有効な保存データがない。
-- Workerは約60秒ごとにGET取得するが、同じsnapshotを正常取得しても`generated_at`は変わらない。
+- 手動GETで同じsnapshotを正常取得しても`generated_at`は変わらない。snapshot生成のActionsをタップで起動しない。
 - AI: `ok`, `stale=false`, 更新から15分以内で`LIVE`。失敗時には検証済みAI LKGをSTALEとして残す。
-- HOST / CODEX TEMP: Windows側5分周期の任意host観測をWorker経由で受け取り、計測から15分以内なら実測値を表示。部分失敗・古い観測はSTALE/LKG等を区別する。
+- AI / HOST / CODEX TEMP: 手動更新で既存の認証済みPTT LAN通信からWindows実測を受け取る。計測から15分以内かつ正常ならLIVE、部分失敗・古い観測・PC不在はSTALE/LKGとして残す。Vaultの通信状態とは独立。旧5分senderタスクは実機手動経路の受入後に無効化する。
 - Vaultが`STALE`でもAI/HOSTの独立した鮮度と表示は維持する。古い生成時刻の応答はLKGを上書きしない。
 
 HUD の数値は実応答から表示する。nullは`—`、未取得のCODEX TEMPは`UNAVAILABLE`（0とは混同しない）。独自の推定値、温度HUDは追加しない。

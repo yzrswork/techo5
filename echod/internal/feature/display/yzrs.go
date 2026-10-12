@@ -37,6 +37,9 @@ func (r *renderer) drawYZRS(s scene) bool {
 	return true
 }
 func (d *Display) yzrsTap(x, y int) {
+	if image.Pt(x, y).In(core.RefreshBounds()) {
+		feature.Get().Refresh()
+	}
 	if mode, ok := core.ModeAt(x, y); ok {
 		feature.Get().Select(mode)
 	}

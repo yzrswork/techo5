@@ -6,6 +6,8 @@ No imports of keyboard/Whisper until main(), so protocol tests need no device or
 import asyncio
 import json
 import os
+import re
+import subprocess
 from pathlib import Path
 import shutil
 import socket
@@ -130,7 +132,98 @@ def check_vad():
     get_speech_timestamps(np.zeros(512, dtype=np.float32))
 
 
-async def connection(ws, events, session, transcribe, paste):
+async def _measure_lane(script, timeout, powershell=None):
+    """Capture only MeasureOnly JSON; never log subprocess output or exceptions."""
+    executable = powershell or os.environ.get("YZRS_DASHBOARD_POWERSHELL") or shutil.which("pwsh")
+    if not executable or not script.is_file():
+        return None
+    process = None
+    try:
+        options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+        process = await asyncio.create_subprocess_exec(executable, "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+            "-File", str(script), "-MeasureOnly", stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL, **options)
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout)
+        if process.returncode != 0 or len(stdout) > 16384:
+            return None
+        value = json.loads(stdout.decode("utf-8-sig"))
+        return value if isinstance(value, dict) else None
+    except Exception:
+        return None
+    finally:
+        # asyncio cancellation also reaches finally. Reconnection never leaves a collector running.
+        if process and process.returncode is None:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            await process.communicate()
+
+
+def _native_lane(lane, value):
+    """Rebuild the allowlist even if an installed collector gains extra properties."""
+    if not isinstance(value, dict):
+        return None
+    try:
+        def stamp(value):
+            return isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:[Zz]|[+-]\d{2}:\d{2})", value)
+        if lane == "host":
+            if not stamp(value.get("measuredAt")):
+                return None
+            if value["schemaVersion"] != 1 or value["source"] != "windows-codex-temp":
+                return None
+            temp = value["codexTemp"]
+            status, size = temp["status"], temp["bytes"]
+            if status in ("ok", "no-matches"):
+                if type(size) is not int or not 0 <= size <= 17592186044416 or (status == "no-matches" and size != 0):
+                    return None
+            elif status not in ("partial", "access-denied", "timeout", "error") or size is not None:
+                return None
+            return {"schemaVersion": 1, "source": value["source"], "measuredAt": value["measuredAt"],
+                "codexTemp": {"bytes": size, "status": status}, "stale": size is None}
+        if value["source"] != "token-monitor" or not stamp(value.get("updatedAt")):
+            return None
+        codex = value["codex"]
+        if type(codex["stale"]) is not bool or type(codex["todayTokens"]) is not int or not 0 <= codex["todayTokens"] <= 9007199254740991:
+            return None
+        if not isinstance(codex["plan"], str) or not re.fullmatch(r"[^@\r\n]{1,64}", codex["plan"]):
+            return None
+        if not isinstance(codex["status"], str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,32}", codex["status"]):
+            return None
+        clean = {name: codex[name] for name in ("plan", "status", "stale", "todayTokens")}
+        for name in ("session", "weekly"):
+            window = codex[name]
+            percent = window["remainingPercent"]
+            if type(percent) not in (int, float) or not 0 <= percent <= 100:
+                return None
+            if not stamp(window.get("resetsAt")):
+                return None
+            clean[name] = {"remainingPercent": percent, "resetsAt": window["resetsAt"]}
+        return {"source": value["source"], "updatedAt": value["updatedAt"], "codex": clean}
+    except (KeyError, TypeError):
+        return None
+
+
+async def measure_dashboard(base=None, collector=_measure_lane):
+    """Independent bounded local lanes. Missing evidence never becomes a zero."""
+    base = Path(base) if base else Path(os.environ.get("LOCALAPPDATA", "")) / "YZRS/EchoDashboard"
+    ai_script = Path(__file__).with_name("send-ai-usage.ps1")
+    async def lane(name, script, timeout):
+        try:
+            return name, _native_lane(name, await collector(script, timeout))
+        except Exception:
+            return name, None
+    values = await asyncio.wait_for(asyncio.gather(
+        lane("ai", ai_script, 20), lane("host", base / "send-host-metrics.ps1", 30)), 55)
+    result = {name: value for name, value in values if value is not None}
+    if result:
+        # Keep real observation timestamps. A bounded delivery buffer lets the
+        # device clock catch up without accepting future data or blocking voice.
+        await asyncio.sleep(2)
+    return result
+
+
+async def connection(ws, events, session, transcribe, paste, measure=measure_dashboard):
     """Injected callbacks make the exact production lifecycle testable with fixture PCM."""
     async def heartbeat():
         while True:
@@ -142,16 +235,34 @@ async def connection(ws, events, session, transcribe, paste):
     beat = asyncio.create_task(heartbeat())
     stt = None
     stt_id = None
+    dashboard = None
+    dashboard_id = None
+    async def refresh():
+        try:
+            return await asyncio.wait_for(measure(), 55)
+        except Exception:
+            return {}
     try:
         while True:
-            waiting = [recv, key, beat] + ([stt] if stt else [])
+            waiting = [recv, key, beat] + ([stt] if stt else []) + ([dashboard] if dashboard else [])
             completed, _ = await asyncio.wait(waiting, return_when=asyncio.FIRST_COMPLETED)
             if beat in completed:
                 beat.result()
                 raise ConnectionError("Heartbeat stopped")
             # A disconnect/cancel is processed before any STT result, preventing a stale paste.
             if recv in completed:
-                pcm = session.receive(recv.result())
+                incoming = recv.result()
+                command = json.loads(incoming) if isinstance(incoming, str) else None
+                if isinstance(command, dict) and command.get("op") == "dashboard_refresh":
+                    request_id = command.get("id")
+                    if not isinstance(request_id, str) or not re.fullmatch(r"[0-9a-f]{32}", request_id):
+                        raise ValueError("Invalid dashboard request")
+                    if dashboard is None:
+                        dashboard_id = request_id
+                        dashboard = asyncio.create_task(refresh())
+                    pcm = None
+                else:
+                    pcm = session.receive(incoming)
                 recv = asyncio.create_task(ws.recv())
                 if pcm is not None:
                     stt_id = session.id
@@ -180,15 +291,26 @@ async def connection(ws, events, session, transcribe, paste):
                         await ws.send(json.dumps({"op": "cancel", "id": session.id}))
                 finally:
                     stt = None
+            if dashboard and dashboard in completed:
+                result = dashboard.result()
+                message = {"op": "dashboard_result", "id": dashboard_id}
+                # Defense in depth: only native dashboard lanes can leave this PC.
+                for name in ("ai", "host"):
+                    clean = _native_lane(name, result.get(name)) if isinstance(result, dict) else None
+                    if clean is not None:
+                        message[name] = clean
+                await ws.send(json.dumps(message, allow_nan=False))
+                dashboard = None
+                dashboard_id = None
             print_state = session.phase
             if getattr(session, "reported", None) != print_state:
                 print(print_state, flush=True)
                 session.reported = print_state
     finally:
-        for task in (recv, key, beat, stt):
+        for task in (recv, key, beat, stt, dashboard):
             if task:
                 task.cancel()
-        await asyncio.gather(*(t for t in (recv, key, beat, stt) if t), return_exceptions=True)
+        await asyncio.gather(*(t for t in (recv, key, beat, stt, dashboard) if t), return_exceptions=True)
         session.clear()
 
 

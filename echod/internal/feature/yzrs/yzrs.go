@@ -45,6 +45,7 @@ type Feature struct {
 	mode         int
 	actionBusy   bool
 	actionStatus string
+	ctx          context.Context
 }
 
 var shared = &Feature{}
@@ -103,16 +104,16 @@ func (f *Feature) Run(ctx context.Context) error {
 		ptt = &core.PTT{Token: cfg.PTTToken, AllowedIP: cfg.PCIP, Listen: func() (<-chan []int16, func()) { return mic.Get().Listen("yzrs-ptt") }}
 		server = &http.Server{Handler: ptt.Handler(inner), ReadHeaderTimeout: 3 * time.Second, IdleTimeout: 10 * time.Second, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{cert}}}
 	}
+	// Restore before exposing the touch control; startup has no network work.
+	store.Restore(time.Now())
 	f.mu.Lock()
 	f.cfg = cfg
+	f.ctx = inner
 	f.store = store
 	f.ptt = ptt
 	f.enabled = true
 	f.mu.Unlock()
 	defer func() { f.mu.Lock(); f.enabled = false; f.mu.Unlock() }()
-	done := make(chan struct{})
-	go func() { defer close(done); store.Run(inner) }()
-	defer func() { cancel(); <-done }()
 	if server == nil {
 		<-ctx.Done()
 		return nil
@@ -147,6 +148,7 @@ func (f *Feature) Frame(now time.Time) core.Frame {
 	v := core.Frame{Now: now, Mode: mode, Data: core.View{Status: "NO DATA"}, Deck: status}
 	if st != nil {
 		v.Data = st.View(now)
+		v.Refresh = st.RefreshStatus()
 	}
 	if p != nil {
 		v.Voice = p.View()
@@ -160,6 +162,19 @@ func (f *Feature) Frame(now time.Time) core.Frame {
 		}
 	}
 	return v
+}
+func (f *Feature) Refresh() {
+	f.mu.RLock()
+	st, p, ctx := f.store, f.ptt, f.ctx
+	f.mu.RUnlock()
+	if st == nil || ctx == nil {
+		return
+	}
+	var measure func(context.Context) (core.Metrics, error)
+	if p != nil {
+		measure = p.RequestMetrics
+	}
+	st.Refresh(ctx, measure)
 }
 func (f *Feature) Select(mode int) {
 	if mode < 0 || mode > 3 {

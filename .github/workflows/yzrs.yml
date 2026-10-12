@@ -36,6 +36,7 @@ jobs:
         run: |
           python3 -m pip install websockets==15.0.1
           python3 -m unittest discover -s tools/yzrs -p test_voice_bridge.py -v
+          python3 -m unittest discover -s tools/yzrs -p test_dashboard_bridge.py -v
           python3 -m unittest discover -s tools/yzrs -p test_trial_rollback.py -v
           cd echod
           go run ./cmd/yzrs-preview -out ../bin/preview -snapshot internal/yzrs/testdata/dashboard.json
@@ -57,7 +58,9 @@ jobs:
         run: |
           pwsh -NoLogo -NoProfile -File tools/yzrs/test_codex_temp.ps1
           pwsh -NoLogo -NoProfile -File tools/yzrs/test_operational_sender.ps1
+          pwsh -NoLogo -NoProfile -File tools/yzrs/test_ai_measure.ps1
           python -m unittest discover -s tools/yzrs -p test_voice_bridge.py -v
+          python -m unittest discover -s tools/yzrs -p test_dashboard_bridge.py -v
           cd echod
           go test ./internal/yzrs
           go vet ./internal/yzrs

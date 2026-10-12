@@ -322,9 +322,7 @@ func percent(n *float64) string {
 }
 
 func aiStatus(a *AI, now time.Time, dataStatus string) string {
-	if dataStatus == "OFFLINE / LKG" {
-		return "OFFLINE / LKG"
-	}
+	// Vault transport and PC measurement freshness are independent.
 	if a.Live(now) {
 		return "LIVE"
 	}
@@ -363,6 +361,7 @@ type Frame struct {
 	Voice   PTTView
 	Deck    string
 	Weather Weather
+	Refresh string
 }
 
 // Draw uses the same native raster path in the daemon and the PC screenshot tool.
@@ -371,7 +370,14 @@ func (r *Renderer) Draw(dst draw.Image, f Frame) {
 	draw.Draw(dst, image.Rect(0, 0, 960, 480), r.background, image.Point{}, draw.Src)
 	now := f.Now.In(JST)
 	r.text(dst, hudLeft, 40, hudWidth, "YZRS / TECHO5", r.small, cyan)
-	r.text(dst, 256, 42, 560, "PERSONAL DASHBOARD", r.small, muted)
+	r.text(dst, 256, 42, 430, "PERSONAL DASHBOARD", r.small, muted)
+	roundedRect(dst, RefreshBounds(), 8, color.RGBA{17, 63, 86, 255})
+	label := "更新"
+	if f.Refresh == "更新中" {
+		label = "更新中"
+	}
+	r.center(dst, 710, 40, 118, label, r.small, cyan)
+	r.text(dst, 580, 72, 350, f.Refresh, r.small, muted)
 	r.text(dst, 856, 42, 86, "SETUP", r.small, muted)
 	var tokens, commits, notes *int64
 	var remaining *float64
@@ -401,7 +407,10 @@ func (r *Renderer) Draw(dst draw.Image, f Frame) {
 	if f.Data.Snapshot != nil {
 		host = f.Data.Snapshot.Host
 	}
-	tempLabel, tempValue := HostDisplay(host, now, f.Data.Status == "OFFLINE / LKG")
+	if host != nil && !host.Measured.IsZero() {
+		r.text(dst, 256, 72, 320, "HOST "+host.Measured.In(JST).Format("01/02 15:04"), r.small, muted)
+	}
+	tempLabel, tempValue := HostDisplay(host, now, false)
 	for i, m := range [][2]string{{tempLabel, tempValue}, {"COMMITS", Count(commits)}, {"NOTES", Count(notes)}} {
 		y := 273 + i*48
 		r.text(dst, hudLeft, y, hudWidth, m[0], r.small, muted)
@@ -424,7 +433,7 @@ func (r *Renderer) Draw(dst draw.Image, f Frame) {
 		s := f.Data.Snapshot
 		r.text(dst, 256, 100, 670, todayHeading(s), r.normal, cyan)
 		if s == nil {
-			r.text(dst, 256, 157, 665, "データを取得できません。接続を待っています。", r.normal, muted)
+			r.text(dst, 256, 157, 665, "データがありません。更新をタップしてください。", r.normal, muted)
 		} else {
 			r.text(dst, 256, 145, 665, "NOTES +"+Count(s.Today.NewNotes)+"   COMMITS "+Count(s.Today.Commits), r.normal, white)
 			if len(s.Activity) == 0 {
@@ -498,6 +507,7 @@ func (r *Renderer) Draw(dst draw.Image, f Frame) {
 
 // One rectangle authority keeps visible tiles and touch targets identical.
 func NavBounds(mode int) image.Rectangle { return image.Rect(346+mode*124, 380, 456+mode*124, 466) }
+func RefreshBounds() image.Rectangle     { return image.Rect(710, 8, 828, 56) }
 func ModeAt(x, y int) (int, bool) {
 	for i := range Modes {
 		if image.Pt(x, y).In(NavBounds(i)) {

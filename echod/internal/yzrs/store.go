@@ -25,6 +25,9 @@ type Store struct {
 	snapshot          *Snapshot
 	checked           time.Time
 	failed            bool
+	refreshBusy       bool
+	refreshUntil      time.Time
+	refreshStatus     string
 }
 
 func NewStore(endpoint, token, cache string) (*Store, error) {
@@ -46,6 +49,14 @@ func (s *Store) Restore(now time.Time) {
 	}
 	parsed, e := Parse(raw, now)
 	if e == nil {
+		// A restored cache is an LKG, never proof that the PC is currently available.
+		stale := true
+		if parsed.AI != nil {
+			parsed.AI.Codex.Stale = &stale
+		}
+		if parsed.Host != nil {
+			parsed.Host.Stale = &stale
+		}
 		s.mu.Lock()
 		s.snapshot = parsed
 		s.failed = true
@@ -111,6 +122,7 @@ func (s *Store) Fetch(ctx context.Context, now time.Time) (err error) {
 	s.mu.Unlock()
 	return nil
 }
+
 // vaultSnapshotDeadline is the first scheduled Vault publication strictly after
 // the accepted snapshot, plus the operational grace period. Scheduled times
 // are JST (08:00, 12:00, 16:00, 20:00, 23:55), not the Worker GET cadence.
@@ -150,16 +162,8 @@ func (s *Store) View(now time.Time) View {
 }
 func (s *Store) Run(ctx context.Context) {
 	s.Restore(time.Now())
-	t := time.NewTicker(time.Minute)
-	defer t.Stop()
-	for {
-		_ = s.Fetch(ctx, time.Now())
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-		}
-	}
+	// Startup and idle never contact the Worker. Only an explicit Refresh fetches.
+	<-ctx.Done()
 }
 func saveJSON(path string, value any) error {
 	if e := os.MkdirAll(filepath.Dir(path), 0700); e != nil {
