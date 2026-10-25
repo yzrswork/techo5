@@ -425,20 +425,7 @@ func (r *Renderer) Draw(dst draw.Image, f Frame) {
 			}
 		}
 	case 2:
-		r.text(dst, 256, 100, 665, "AI / CODEX", r.normal, cyan)
-		s := f.Data.Snapshot
-		if s == nil || s.AI == nil {
-			r.text(dst, 256, 161, 665, "AI データは利用できません。", r.normal, muted)
-		} else {
-			a := s.AI
-			status := aiStatus(a, now, f.Data.Status)
-			r.text(dst, 256, 153, 665, a.Codex.Plan+"  /  "+status, r.normal, white)
-			r.text(dst, 256, 205, 665, "SESSION REMAINING  "+percent(a.Codex.Session.Remaining), r.normal, white)
-			r.text(dst, 256, 235, 665, "RESET "+a.Codex.Session.Reset.In(JST).Format("01/02 15:04"), r.small, muted)
-			r.text(dst, 256, 285, 665, "WEEKLY REMAINING   "+percent(a.Codex.Weekly.Remaining), r.normal, white)
-			r.text(dst, 256, 315, 665, "RESET "+a.Codex.Weekly.Reset.In(JST).Format("01/02 15:04"), r.small, muted)
-			r.text(dst, 256, 362, 665, "UPDATED "+a.Updated.In(JST).Format("01/02 15:04"), r.small, muted)
-		}
+		r.drawClaudeTab(dst, claude, f.Now)
 	case 3:
 		r.text(dst, 256, 100, 665, "VOICE / WINDOWS PTT", r.normal, cyan)
 		phase := f.Voice.Phase

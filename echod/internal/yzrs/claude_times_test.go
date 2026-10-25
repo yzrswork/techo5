@@ -55,6 +55,11 @@ func TestClaudeTimesValidation(t *testing.T) {
 			t.Fatalf("invalid times accepted: %s", name)
 		}
 	}
+	// The AI tab is LIVE only while the status line capture is recent.
+	if !claudeLive(claudeFixture(fixtureTime, 77), fixtureTime.Add(15*time.Minute)) ||
+		claudeLive(claudeFixture(fixtureTime, 77), fixtureTime.Add(16*time.Minute)) || claudeLive(nil, fixtureTime) {
+		t.Fatal("claude LIVE window wrong")
+	}
 	// A passed reset means the window value is unknown, not still 77%.
 	c := claudeFixture(fixtureTime, 77)
 	if windowLeft(c.FiveHour, fixtureTime) == nil || windowLeft(c.FiveHour, fixtureTime.Add(3*time.Hour)) != nil {
@@ -133,8 +138,11 @@ func TestClaudeTimesHUD(t *testing.T) {
 			for x := 0; x < 960; x++ {
 				if before.RGBAAt(x, y) != after.RGBAAt(x, y) {
 					changed = true
-					if x < hudLeft || x >= hudLeft+hudWidth+4 || y < 60 || y > 400 {
-						t.Fatalf("pixel outside left HUD changed: %d,%d mode=%d", x, y, mode)
+					inHUD := x >= hudLeft && x < hudLeft+hudWidth+4 && y >= 60 && y <= 400
+					// The AI tab shows Claude in the content area; other tabs must not change.
+					inAITab := mode == 2 && x >= 250 && y >= 60 && y <= 375
+					if !inHUD && !inAITab {
+						t.Fatalf("pixel outside Claude/Times areas changed: %d,%d mode=%d", x, y, mode)
 					}
 				}
 			}

@@ -135,3 +135,40 @@ func wrapText(f font.Face, s string, width, maxLines int) []string {
 	}
 	return lines
 }
+
+// claudeLive mirrors the AI tab's 15-minute LIVE rule. The status line only
+// writes while Claude Code runs, so an older capture is shown as STALE.
+func claudeLive(c *Claude, now time.Time) bool {
+	return validClaude(c, now) && now.Sub(c.Captured) <= 15*time.Minute
+}
+
+// drawClaudeTab is the AI tab: the same layout the Codex tab used, for Claude Code.
+func (r *Renderer) drawClaudeTab(dst draw.Image, c *Claude, now time.Time) {
+	r.text(dst, 256, 100, 665, "AI / CLAUDE", r.normal, cyan)
+	if c == nil {
+		r.text(dst, 256, 161, 665, "Claude データはまだありません。", r.normal, muted)
+		r.text(dst, 256, 205, 665, "Claude Code を使ったあとに「更新」を押してください。", r.small, muted)
+		return
+	}
+	status := "STALE"
+	if claudeLive(c, now) {
+		status = "LIVE"
+	}
+	r.text(dst, 256, 153, 665, "CLAUDE CODE  /  "+status, r.normal, white)
+	for i, w := range []struct {
+		label  string
+		window *Window
+	}{{"5H REMAINING  ", c.FiveHour}, {"7D REMAINING  ", c.SevenDay}} {
+		y := 205 + i*80
+		r.text(dst, 256, y, 665, w.label+percent(windowLeft(w.window, now)), r.normal, white)
+		reset := "NO DATA"
+		if w.window != nil {
+			reset = "RESET " + w.window.Reset.In(JST).Format("01/02 15:04")
+			if !now.Before(w.window.Reset) {
+				reset += "  済み / 次の取得待ち"
+			}
+		}
+		r.text(dst, 256, y+30, 665, reset, r.small, muted)
+	}
+	r.text(dst, 256, 362, 665, "UPDATED "+c.Captured.In(JST).Format("01/02 15:04"), r.small, muted)
+}
