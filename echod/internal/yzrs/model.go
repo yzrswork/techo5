@@ -56,6 +56,8 @@ type Snapshot struct {
 	Activity []Activity   `json:"activity"`
 	AI       *AI          `json:"ai,omitempty"`
 	Host     *HostMetrics `json:"host,omitempty"`
+	Claude   *Claude      `json:"claude,omitempty"`
+	Times    *Times       `json:"times,omitempty"`
 }
 
 func Parse(raw []byte, now time.Time) (*Snapshot, error) {
@@ -70,12 +72,15 @@ func Parse(raw []byte, now time.Time) (*Snapshot, error) {
 	}
 	aiRaw := root["ai"]
 	hostRaw := root["host"]
+	claudeRaw := root["claude"]
+	timesRaw := root["times"]
 
 	if activity, ok := root["activity"]; !ok || len(activity) == 0 || activity[0] != '[' {
 		return nil, bad
 	}
-	delete(root, "ai")
-	delete(root, "host")
+	for _, k := range []string{"ai", "host", "claude", "times"} {
+		delete(root, k)
+	}
 	mainRaw, _ := json.Marshal(root)
 	if json.Unmarshal(mainRaw, &s) != nil || s.Version != 1 || s.Generated.IsZero() || s.Generated.After(now.Add(5*time.Minute)) || s.Date != s.Generated.In(JST).Format("2006-01-02") || !shaPattern.MatchString(s.Source.SHA) || s.Source.Window.To != s.Source.SHA || len(s.Activity) > 20 {
 		return nil, bad
@@ -90,6 +95,19 @@ func Parse(raw []byte, now time.Time) (*Snapshot, error) {
 		var host HostMetrics
 		if json.Unmarshal(hostRaw, &host) == nil && validHost(&host, now) {
 			s.Host = &host
+		}
+	}
+	// PC-only lanes come from the local cache; optional faults must not break TODAY.
+	if len(claudeRaw) > 0 {
+		var c Claude
+		if json.Unmarshal(claudeRaw, &c) == nil && validClaude(&c, now) {
+			s.Claude = &c
+		}
+	}
+	if len(timesRaw) > 0 {
+		var t Times
+		if json.Unmarshal(timesRaw, &t) == nil && validTimes(&t, now) {
+			s.Times = &t
 		}
 	}
 	if s.Source.Window.From != nil && !shaPattern.MatchString(*s.Source.Window.From) {

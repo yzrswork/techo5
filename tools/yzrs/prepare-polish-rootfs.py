@@ -25,8 +25,12 @@ def main():
     parser.add_argument("--daemon", type=pathlib.Path, required=True)
     parser.add_argument("--out", type=pathlib.Path, required=True)
     parser.add_argument("--release", required=True)
+    parser.add_argument("--accepted-sha256", default=ACCEPTED,
+        help="SHA256 of the currently accepted rootfs used as the baseline")
     args = parser.parse_args()
-    if digest(args.baseline) != ACCEPTED:
+    if not re.fullmatch(r"[0-9a-f]{64}", args.accepted_sha256):
+        raise SystemExit("Invalid accepted SHA256")
+    if digest(args.baseline) != args.accepted_sha256:
         raise SystemExit("Accepted baseline SHA256 mismatch")
     if args.out.exists():
         raise SystemExit("Refusing to overwrite an existing candidate")

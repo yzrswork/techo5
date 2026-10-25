@@ -1,4 +1,4 @@
-"""TECHO5 native PTT. HW-16 keyboard queue / small CUDA float16 / clipboard UX.
+"""TECHO5 native PTT. HW-16 keyboard queue / CUDA float16 Whisper / clipboard UX.
 
 Audio stays in bounded RAM. Network and hotkeys remain live during GPU transcription.
 No imports of keyboard/Whisper until main(), so protocol tests need no device or GPU.
@@ -18,6 +18,8 @@ import threading
 import uuid
 
 MAX_PCM = 16000 * 2 * 60
+# Optional pc.json "stt_model". Unset keeps the accepted HW-16 small model.
+STT_MODELS = ("small", "large-v3-turbo")
 _stt_lock = threading.Lock()
 _dll_handles = []
 
@@ -94,7 +96,7 @@ class Session:
         # Preserve held until KEY_UP. Reconnection never resumes a held-key recording.
 
 
-def transcribe_pcm(model, pcm):
+def transcribe_pcm(model, pcm, prompt=None):
     import numpy as np
     if len(pcm) < 1000:
         return ""  # Same short-recording threshold as the accepted HW-16 client.
@@ -106,7 +108,9 @@ def transcribe_pcm(model, pcm):
     try:
         # Nonzero microphone noise is not speech. Silero VAD prevents decoding
         # noise-only recordings into plausible Japanese and pasting that text.
-        segments, _ = model.transcribe(audio, language="ja", vad_filter=True)
+        # The vocabulary prompt biases spelling of known terms and makes Whisper
+        # emit Japanese punctuation, so pasted text reads as sentences.
+        segments, _ = model.transcribe(audio, language="ja", vad_filter=True, initial_prompt=prompt)
         return "".join(segment.text for segment in segments).strip()
     finally:
         _stt_lock.release()
@@ -181,6 +185,34 @@ def _native_lane(lane, value):
                 return None
             return {"schemaVersion": 1, "source": value["source"], "measuredAt": value["measuredAt"],
                 "codexTemp": {"bytes": size, "status": status}, "stale": size is None}
+        if lane == "claude":
+            if value["source"] != "claude-statusline" or not stamp(value.get("capturedAt")):
+                return None
+            clean = {"source": value["source"], "capturedAt": value["capturedAt"]}
+            for name in ("fiveHour", "sevenDay"):
+                window = value.get(name)
+                if window is None:
+                    continue
+                percent = window["remainingPercent"]
+                if type(percent) not in (int, float) or not 0 <= percent <= 100 or not stamp(window.get("resetsAt")):
+                    return None
+                clean[name] = {"remainingPercent": percent, "resetsAt": window["resetsAt"]}
+            return clean if len(clean) > 2 else None
+        if lane == "times":
+            if value["source"] != "yzrs-times" or not stamp(value.get("fetchedAt")):
+                return None
+            issue, title, outlet = value["issueNo"], value["title"], value["outlet"]
+            if type(issue) is not int or issue <= 0 or value["edition"] not in ("morning", "midday"):
+                return None
+            if not isinstance(value["date"], str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value["date"]):
+                return None
+            if not isinstance(title, str) or not re.fullmatch(r"[^\x00-\x1f\x7f]{1,80}", title):
+                return None
+            if not isinstance(outlet, str) or not re.fullmatch(r"[^\x00-\x1f\x7f]{0,40}", outlet):
+                return None
+            return {name: value[name] for name in ("source", "issueNo", "edition", "date", "fetchedAt", "title", "outlet")}
+        if lane != "ai":
+            return None
         if value["source"] != "token-monitor" or not stamp(value.get("updatedAt")):
             return None
         codex = value["codex"]
@@ -204,17 +236,61 @@ def _native_lane(lane, value):
         return None
 
 
-async def measure_dashboard(base=None, collector=_measure_lane):
+CLAUDE_USAGE = Path(os.environ.get("LOCALAPPDATA", "")) / "YZRS-TECHO5" / "claude-usage.json"
+TIMES_URL = "https://yzrswork.com/data/latest.json"
+
+
+def read_claude_usage(path=None):
+    """Last rate-limit snapshot written by claude_statusline.py; absent until Claude Code runs."""
+    path = Path(path) if path else CLAUDE_USAGE
+    if not path.is_file() or path.stat().st_size > 4096:
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def fetch_times(url=TIMES_URL, timeout=10):
+    """Lead article of the latest public YZRS Times issue. No credentials are sent."""
+    import urllib.parse
+    import urllib.request
+    from datetime import datetime, timezone
+    request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "yzrs-techo5-ptt"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        if response.status != 200 or urllib.parse.urlsplit(response.geturl()).hostname != "yzrswork.com":
+            return None
+        raw = response.read(524289)
+    if len(raw) > 524288:
+        return None
+    issue = json.loads(raw.decode("utf-8"))
+    articles = {a.get("id"): a for a in issue.get("articles", []) if isinstance(a, dict)}
+    lead = articles.get((issue.get("top") or [None])[0])
+    if not isinstance(lead, dict) or not isinstance(lead.get("title"), str):
+        return None
+    title = " ".join(lead["title"].split())
+    outlet = " ".join(str(lead.get("source", "")).split())
+    return {"source": "yzrs-times", "issueNo": issue.get("issueNo"), "edition": issue.get("edition"),
+        "date": issue.get("date"), "fetchedAt": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "title": title if len(title) <= 80 else title[:79] + "…", "outlet": outlet[:40]}
+
+
+async def measure_dashboard(base=None, collector=_measure_lane, readers=None):
     """Independent bounded local lanes. Missing evidence never becomes a zero."""
     base = Path(base) if base else Path(os.environ.get("LOCALAPPDATA", "")) / "YZRS/EchoDashboard"
     ai_script = Path(__file__).with_name("send-ai-usage.ps1")
+    if readers is None:
+        readers = {"claude": read_claude_usage, "times": fetch_times}
     async def lane(name, script, timeout):
         try:
             return name, _native_lane(name, await collector(script, timeout))
         except Exception:
             return name, None
+    async def local(name, reader):
+        try:
+            return name, _native_lane(name, await asyncio.wait_for(asyncio.to_thread(reader), 15))
+        except Exception:
+            return name, None
     values = await asyncio.wait_for(asyncio.gather(
-        lane("ai", ai_script, 20), lane("host", base / "send-host-metrics.ps1", 30)), 55)
+        lane("ai", ai_script, 20), lane("host", base / "send-host-metrics.ps1", 30),
+        *(local(name, reader) for name, reader in readers.items())), 55)
     result = {name: value for name, value in values if value is not None}
     if result:
         # Keep real observation timestamps. A bounded delivery buffer lets the
@@ -295,7 +371,7 @@ async def connection(ws, events, session, transcribe, paste, measure=measure_das
                 result = dashboard.result()
                 message = {"op": "dashboard_result", "id": dashboard_id}
                 # Defense in depth: only native dashboard lanes can leave this PC.
-                for name in ("ai", "host"):
+                for name in ("ai", "host", "claude", "times"):
                     clean = _native_lane(name, result.get(name)) if isinstance(result, dict) else None
                     if clean is not None:
                         message[name] = clean
@@ -325,6 +401,15 @@ def read_config(path):
     url.port  # Validate malformed ports before entering a reconnect loop.
     if not Path(cfg["ca_file"]).is_file():
         raise ValueError("Missing PTT certificate")
+    cfg.setdefault("stt_model", "small")
+    if cfg["stt_model"] not in STT_MODELS:
+        raise ValueError("Unsupported STT model")
+    words = cfg.setdefault("stt_vocabulary", [])
+    if (not isinstance(words, list) or len(words) > 40 or any(
+            not isinstance(w, str) or not w.strip() or len(w) > 32 for w in words)):
+        raise ValueError("Invalid STT vocabulary")
+    # Whisper keeps only the tail of an overlong prompt; bounded terms stay intact.
+    cfg["stt_prompt"] = "、".join(w.strip() for w in words) + "。" if words else None
     return cfg
 
 
@@ -365,7 +450,7 @@ async def run(cfg, model, check_startup=False):
                     open_timeout=5, close_timeout=2, max_size=1024, max_queue=8,
                     ping_interval=None) as ws:
                     if not await connection(ws, events, session,
-                        lambda pcm: transcribe_pcm(model, pcm), paste):
+                        lambda pcm: transcribe_pcm(model, pcm, cfg["stt_prompt"]), paste):
                         return
             except ssl.SSLCertVerificationError:
                 raise StartupError("TLS_IDENTITY") from None
@@ -426,8 +511,8 @@ def main():
             return WhisperModel
         WhisperModel = startup_step("DEPENDENCIES", load_dependencies)
         startup_step("VAD", check_vad)
-        print("small / CUDA / float16 読み込み中", flush=True)
-        model = startup_step("MODEL_CUDA", lambda: WhisperModel("small", device="cuda", compute_type="float16"))
+        print(cfg["stt_model"] + " / CUDA / float16 読み込み中", flush=True)
+        model = startup_step("MODEL_CUDA", lambda: WhisperModel(cfg["stt_model"], device="cuda", compute_type="float16"))
         asyncio.run(run(cfg, model, args.check_startup))
 
 

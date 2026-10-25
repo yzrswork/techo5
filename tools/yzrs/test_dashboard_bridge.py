@@ -22,7 +22,7 @@ class LaneTests(unittest.IsolatedAsyncioTestCase):
         async def collector(path, timeout):
             return AI if path.name == 'send-ai-usage.ps1' else HOST
         with patch('voice_bridge.asyncio.sleep', new_callable=AsyncMock) as settle:
-            result = await measure_dashboard('fixture', collector)
+            result = await measure_dashboard('fixture', collector, readers={})
             settle.assert_awaited_once_with(2)
         self.assertEqual(result['ai']['updatedAt'], STAMP)
         self.assertEqual(result['host']['measuredAt'], STAMP)
@@ -34,7 +34,7 @@ class LaneTests(unittest.IsolatedAsyncioTestCase):
             if path.name == 'send-ai-usage.ps1':
                 raise TimeoutError('private diagnostic')
             return dict(HOST, privateIdentity='never-forward')
-        result = await measure_dashboard('fixture', collector)
+        result = await measure_dashboard('fixture', collector, readers={})
         self.assertEqual(set(result), {'host'})
         self.assertEqual(result['host']['codexTemp']['bytes'], 1234)
         self.assertFalse(result['host']['stale'])
@@ -110,6 +110,55 @@ class LaneTests(unittest.IsolatedAsyncioTestCase):
         ai = json.loads(json.dumps(AI))
         ai['codex']['weekly']['resetsAt'] = {'privateIdentity': 'never-forward'}
         self.assertIsNone(_native_lane('ai', ai))
+
+CLAUDE = {'source': 'claude-statusline', 'capturedAt': STAMP,
+          'fiveHour': {'remainingPercent': 77, 'resetsAt': STAMP},
+          'sevenDay': {'remainingPercent': 59.5, 'resetsAt': STAMP}}
+TIMES = {'source': 'yzrs-times', 'issueNo': 213, 'edition': 'morning', 'date': '2026-10-25',
+         'fetchedAt': STAMP, 'title': 'JSがこんなに減る！ HTML・CSS最新技術2026', 'outlet': 'はてなブックマーク テクノロジー'}
+
+
+class ClaudeTimesLaneTests(unittest.IsolatedAsyncioTestCase):
+    def test_allowlists(self):
+        self.assertEqual(_native_lane('claude', dict(CLAUDE, accountEmail='never-forward')), CLAUDE)
+        self.assertEqual(_native_lane('times', dict(TIMES, summaryJa=['never-forward'])), TIMES)
+        only_week = {k: v for k, v in CLAUDE.items() if k != 'fiveHour'}
+        self.assertEqual(_native_lane('claude', only_week), only_week)
+        for bad in ({'fiveHour': None, 'sevenDay': None}, {'source': 'token-monitor'},
+                    {'fiveHour': {'remainingPercent': 101, 'resetsAt': STAMP}},
+                    {'sevenDay': {'remainingPercent': True, 'resetsAt': STAMP}}):
+            self.assertIsNone(_native_lane('claude', dict(CLAUDE, **bad)))
+        for bad in ({'issueNo': True}, {'edition': 'evening'}, {'title': ''}, {'title': 'a\nb'},
+                    {'title': 'あ' * 81}, {'outlet': 'x' * 41}, {'date': '10/25'}):
+            self.assertIsNone(_native_lane('times', dict(TIMES, **bad)))
+        self.assertIsNone(_native_lane('unknown', CLAUDE))
+
+    async def test_local_lanes_independent(self):
+        async def collector(path, timeout):
+            return None
+        def broken():
+            raise OSError('private diagnostic')
+        with patch('voice_bridge.asyncio.sleep', new_callable=AsyncMock):
+            result = await measure_dashboard('fixture', collector, readers={'claude': lambda: CLAUDE, 'times': broken})
+        self.assertEqual(result, {'claude': CLAUDE})
+
+    def test_statusline_saves_remaining_and_prints(self):
+        from claude_statusline import render
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / 'usage.json'
+            line = render({'model': {'display_name': 'Opus'}, 'context_window': {'used_percentage': 23.4},
+                'rate_limits': {'five_hour': {'used_percentage': 23, 'resets_at': 1761382800},
+                                'seven_day': {'used_percentage': 'bad', 'resets_at': 1}}}, out)
+            self.assertEqual(line, 'Opus · ctx 23% · 5h 77% left')
+            saved = json.loads(out.read_text(encoding='utf-8'))
+            self.assertEqual(saved['fiveHour'], {'remainingPercent': 77.0, 'resetsAt': '2025-10-25T09:00:00+00:00'})
+            self.assertNotIn('sevenDay', saved)
+            self.assertIsNotNone(_native_lane('claude', saved))
+            out.unlink()
+            # Before the first API response there are no rate limits: keep the previous file.
+            self.assertEqual(render({'model': {'display_name': 'Opus'}}, out), 'Opus')
+            self.assertFalse(out.exists())
+
 
 class RefreshTests(unittest.IsolatedAsyncioTestCase):
     async def test_refresh_overlaps_voice_and_duplicate_is_ignored(self):

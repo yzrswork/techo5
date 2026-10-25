@@ -38,6 +38,28 @@ class StartupTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 read_config(path)
 
+    def test_stt_model_and_vocabulary(self):
+        with tempfile.TemporaryDirectory() as folder:
+            cert = Path(folder) / "cert.pem"
+            cert.touch()
+            path = Path(folder) / "pc.json"
+            base = {"url": "wss://127.0.0.1:17327/ptt", "token": "x" * 64, "ca_file": str(cert)}
+            path.write_text(json.dumps(base))
+            cfg = read_config(path)
+            self.assertEqual(cfg["stt_model"], "small")
+            self.assertIsNone(cfg["stt_prompt"])
+            path.write_text(json.dumps({**base, "stt_model": "large-v3-turbo",
+                "stt_vocabulary": ["Claude", " Vault ", "や印工務店"]}), encoding="utf-8")
+            cfg = read_config(path)
+            self.assertEqual(cfg["stt_model"], "large-v3-turbo")
+            self.assertEqual(cfg["stt_prompt"], "Claude、Vault、や印工務店。")
+            for bad in ({"stt_model": "large-v3"}, {"stt_vocabulary": "Claude"},
+                    {"stt_vocabulary": [""]}, {"stt_vocabulary": ["x" * 33]},
+                    {"stt_vocabulary": ["x"] * 41}):
+                path.write_text(json.dumps({**base, **bad}))
+                with self.assertRaises(ValueError):
+                    read_config(path)
+
 
 class SessionTests(unittest.TestCase):
     def test_fast_key_up_and_repeat(self):
