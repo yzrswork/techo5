@@ -379,43 +379,13 @@ func (r *Renderer) Draw(dst draw.Image, f Frame) {
 	r.center(dst, 710, 40, 118, label, r.small, cyan)
 	r.text(dst, 580, 72, 350, f.Refresh, r.small, muted)
 	r.text(dst, 856, 42, 86, "SETUP", r.small, muted)
-	var tokens, commits, notes *int64
-	var remaining *float64
+	var claude *Claude
+	var times *Times
 	if s := f.Data.Snapshot; s != nil {
-		commits = s.Today.Commits
-		notes = s.Today.Notes
-		if s.AI != nil {
-			tokens = s.AI.Codex.Tokens
-			remaining = s.AI.Codex.Session.Remaining
-		}
+		claude, times = s.Claude, s.Times
 	}
-	r.text(dst, hudLeft, 77, hudWidth, "TOKENS TODAY", r.small, muted)
-	r.text(dst, hudLeft, 105, hudWidth, Count(tokens), r.normal, white)
-	r.text(dst, hudLeft, 140, hudWidth, "LIMIT REMAINING", r.small, muted)
-	gaugeColor := cyan
-	gaugeStatus := "UNAVAILABLE"
-	if f.Data.Snapshot != nil && f.Data.Snapshot.AI != nil {
-		gaugeStatus = aiStatus(f.Data.Snapshot.AI, now, f.Data.Status)
-		if gaugeStatus != "LIVE" {
-			gaugeColor = muted
-		}
-	}
-	drawRing(dst, hudLeft+hudWidth/2, 200, 43, 5, remaining, gaugeColor)
-	r.center(dst, hudLeft, 198, hudWidth, percent(remaining), r.normal, white)
-	r.center(dst, hudLeft, 256, hudWidth, gaugeStatus, r.small, muted)
-	var host *HostMetrics
-	if f.Data.Snapshot != nil {
-		host = f.Data.Snapshot.Host
-	}
-	if host != nil && !host.Measured.IsZero() {
-		r.text(dst, 256, 72, 320, "HOST "+host.Measured.In(JST).Format("01/02 15:04"), r.small, muted)
-	}
-	tempLabel, tempValue := HostDisplay(host, now, false)
-	for i, m := range [][2]string{{tempLabel, tempValue}, {"COMMITS", Count(commits)}, {"NOTES", Count(notes)}} {
-		y := 273 + i*48
-		r.text(dst, hudLeft, y, hudWidth, m[0], r.small, muted)
-		r.text(dst, hudLeft, y+24, hudWidth, m[1], r.normal, white)
-	}
+	r.drawClaudeHUD(dst, claude, f.Now)
+	r.drawTimesHUD(dst, times)
 	r.text(dst, hudLeft, 422, hudWidth, vaultHUDStatus(f.Data.Status), r.small, cyan)
 	if f.Data.Snapshot != nil {
 		r.text(dst, hudLeft, 445, hudWidth, snapshotLabel(f.Data.Snapshot), r.small, muted)
@@ -483,9 +453,6 @@ func (r *Renderer) Draw(dst draw.Image, f Frame) {
 		r.text(dst, 256, 215, 665, status, r.normal, muted)
 		r.text(dst, 256, 260, 665, "F8 を押して話す / 離して文字起こし", r.normal, white)
 		r.text(dst, 256, 310, 665, "VOICE は Windows クライアントを起動します。", r.normal, muted)
-	}
-	if s := f.Data.Snapshot; s != nil && s.AI != nil && !s.AI.Live(now) {
-		r.text(dst, hudLeft, 464, hudWidth, "AI STALE", r.small, muted)
 	}
 	for i, name := range Modes {
 		box := NavBounds(i)

@@ -7,8 +7,10 @@ import (
 )
 
 type Metrics struct {
-	AI   *AI          `json:"ai,omitempty"`
-	Host *HostMetrics `json:"host,omitempty"`
+	AI     *AI          `json:"ai,omitempty"`
+	Host   *HostMetrics `json:"host,omitempty"`
+	Claude *Claude      `json:"claude,omitempty"`
+	Times  *Times       `json:"times,omitempty"`
 }
 
 // Refresh is single-flight with a cooldown after completion. Tab changes do not call it.
@@ -86,6 +88,15 @@ func (s *Store) applyMetrics(m Metrics, started, now time.Time) (bool, bool, err
 		stale := true
 		h.Stale = &stale
 		next.Host = &h
+	}
+	// Claude and Times carry their own observation times and keep the previous
+	// value on failure; they never regress and do not change the refresh status.
+	if validClaude(m.Claude, now) && !m.Claude.Captured.After(now) &&
+		(next.Claude == nil || !m.Claude.Captured.Before(next.Claude.Captured)) {
+		next.Claude = m.Claude
+	}
+	if validTimes(m.Times, now) && (next.Times == nil || m.Times.IssueNo >= next.Times.IssueNo) {
+		next.Times = m.Times
 	}
 	if err := saveJSON(s.Cache, &next); err != nil {
 		return false, false, err

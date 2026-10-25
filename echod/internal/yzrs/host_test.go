@@ -152,21 +152,10 @@ func TestHostDisplayAndPreservation(t *testing.T) {
 		s.Host = hostFixture(1524713390)
 		after := image.NewRGBA(before.Bounds())
 		r.Draw(after, frame)
-		changed := false
-		for y := 0; y < 480; y++ {
-			for x := 0; x < 960; x++ {
-				if before.RGBAAt(x, y) != after.RGBAAt(x, y) {
-					changed = true
-					inHUD := x >= hudLeft && x < hudLeft+hudWidth && y >= 258 && y <= 309
-					inTimestamp := image.Pt(x, y).In(image.Rect(256, 54, 576, 74))
-					if !inHUD && !inTimestamp {
-						t.Fatalf("unrelated pixel changed: %d,%d mode=%d", x, y, mode)
-					}
-				}
-			}
-		}
-		if !changed {
-			t.Fatal("numeric host metric not rendered")
+		// The left HUD now shows Claude and YZRS Times; the host lane is kept
+		// and cached but no longer drawn.
+		if !bytes.Equal(before.Pix, after.Pix) {
+			t.Fatalf("host metric still rendered in mode %d", mode)
 		}
 	}
 }

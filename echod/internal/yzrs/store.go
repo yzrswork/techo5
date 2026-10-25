@@ -100,6 +100,11 @@ func (s *Store) Fetch(ctx context.Context, now time.Time) (err error) {
 		copyAI.Codex.Stale = &stale
 		parsed.AI = &copyAI
 	}
+	// The Worker is not a source for PC-only lanes; keep the last validated values.
+	parsed.Claude, parsed.Times = nil, nil
+	if previous != nil {
+		parsed.Claude, parsed.Times = previous.Claude, previous.Times
+	}
 	// Persist a validated allowlist, never unknown Worker fields. Atomic rename preserves LKG.
 	// Host observations are independent of both TODAY generation time and AI.
 	if previous != nil && previous.Host.usable() &&
