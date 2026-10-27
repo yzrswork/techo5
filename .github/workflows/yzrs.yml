@@ -55,6 +55,9 @@ jobs:
           go-version: '1.26.8'
           cache-dependency-path: echod/go.sum
       - name: Portable client tests
+        # bash runs with -eo pipefail, so any failing command fails the job.
+        # The default pwsh shell only reported the last command's exit code.
+        shell: bash
         run: |
           pwsh -NoLogo -NoProfile -File tools/yzrs/test_codex_temp.ps1
           pwsh -NoLogo -NoProfile -File tools/yzrs/test_operational_sender.ps1
