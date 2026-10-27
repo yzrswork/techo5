@@ -413,7 +413,9 @@ def read_config(path):
     return cfg
 
 
-async def run(cfg, model, check_startup=False):
+async def run(cfg, model, check_startup=False, exit_key=None):
+    # No global exit key in production: Esc pressed in any app used to stop the
+    # client silently. Stop with stop-voice.ps1. Tests pass exit_key to end a run.
     import keyboard
     import pyperclip
     from websockets.asyncio.client import connect
@@ -433,14 +435,14 @@ async def run(cfg, model, check_startup=False):
     def hook(event):
         if event.name == "f8":
             loop.call_soon_threadsafe(enqueue, event.event_type)
-        elif event.name == "esc" and event.event_type == keyboard.KEY_DOWN:
+        elif exit_key and event.name == exit_key and event.event_type == keyboard.KEY_DOWN:
             loop.call_soon_threadsafe(enqueue, "exit")
     handle = startup_step("HOTKEY", lambda: keyboard.hook(hook))
     def paste(text):
         pyperclip.copy(text)
         keyboard.press_and_release("ctrl+v")
     try:
-        print("PTT READY / F8 DOWN-UP / Esc", flush=True)
+        print("PTT READY / F8 DOWN-UP / 終了は stop-voice.ps1", flush=True)
         if check_startup:
             return
         while True:

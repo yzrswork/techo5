@@ -7,6 +7,33 @@ from pathlib import Path
 from voice_bridge import MAX_PCM, Session, connection, read_config, startup_step, StartupError
 
 
+class ExitKeyTests(unittest.IsolatedAsyncioTestCase):
+    async def run_with_esc(self, **kwargs):
+        import ssl
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        import keyboard
+        import voice_bridge
+        callbacks = []
+        context = ssl.create_default_context
+        cfg = {"url": "wss://127.0.0.1:9/ptt", "token": "x" * 64, "ca_file": "unused", "stt_prompt": None}
+        with patch.object(keyboard, "hook", lambda hook: callbacks.append(hook) or hook), \
+                patch.object(keyboard, "unhook", lambda handle: None), \
+                patch.object(voice_bridge.ssl, "create_default_context", lambda cafile=None: context()):
+            task = asyncio.create_task(voice_bridge.run(cfg, None, **kwargs))
+            while not callbacks:
+                await asyncio.sleep(0.01)
+            callbacks[0](SimpleNamespace(name="esc", event_type=keyboard.KEY_DOWN))
+            done, _ = await asyncio.wait({task}, timeout=3)
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            return bool(done)
+
+    async def test_esc_in_another_app_does_not_stop_client(self):
+        self.assertFalse(await self.run_with_esc())
+        self.assertTrue(await self.run_with_esc(exit_key="esc"))
+
+
 class StartupTests(unittest.TestCase):
     def test_missing_configuration_and_certificate(self):
         with tempfile.TemporaryDirectory() as folder:
