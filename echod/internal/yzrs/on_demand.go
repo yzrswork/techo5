@@ -34,9 +34,11 @@ func (s *Store) Refresh(ctx context.Context, measure func(context.Context) (Metr
 		if measure != nil {
 			m, pcErr = measure(inner)
 		}
-		aiOK, hostOK, cacheErr := s.applyMetrics(m, started, time.Now())
+		_, _, shownOK, cacheErr := s.applyMetrics(m, started, time.Now())
 		status := "更新済"
-		if pcErr != nil || !aiOK || !hostOK {
+		// Only lanes the screen shows decide the PC result. The Codex AI and host
+		// lanes are still cached when sent, but are no longer displayed.
+		if pcErr != nil || !shownOK {
 			status = "PC未更新 / LKG"
 		}
 		if cloudErr != nil {
@@ -62,16 +64,17 @@ func (s *Store) RefreshStatus() string {
 
 // Local measurements retain Vault's generation timestamp and independently monotonic lanes.
 // Omitted, invalid, unhealthy or old results stale the previous validated measurement.
-func (s *Store) applyMetrics(m Metrics, started, now time.Time) (bool, bool, error) {
+// shownOK reports that both displayed lanes, Claude and Times, were delivered valid.
+func (s *Store) applyMetrics(m Metrics, started, now time.Time) (aiOK, hostOK, shownOK bool, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.snapshot == nil {
-		return false, false, errors.New("no validated snapshot")
+		return false, false, false, errors.New("no validated snapshot")
 	}
 	next := *s.snapshot
-	aiOK := validAI(m.AI, now) && !m.AI.Updated.Before(started) && !m.AI.Updated.After(now) && m.AI.Live(now) &&
+	aiOK = validAI(m.AI, now) && !m.AI.Updated.Before(started) && !m.AI.Updated.After(now) && m.AI.Live(now) &&
 		(next.AI == nil || m.AI.Updated.After(next.AI.Updated))
-	hostOK := validHost(m.Host, now) && !m.Host.Measured.Before(started) && m.Host.live(now) &&
+	hostOK = validHost(m.Host, now) && !m.Host.Measured.Before(started) && m.Host.live(now) &&
 		(next.Host == nil || m.Host.Measured.After(next.Host.Measured))
 	if aiOK {
 		next.AI = m.AI
@@ -90,17 +93,19 @@ func (s *Store) applyMetrics(m Metrics, started, now time.Time) (bool, bool, err
 		next.Host = &h
 	}
 	// Claude and Times carry their own observation times and keep the previous
-	// value on failure; they never regress and do not change the refresh status.
-	if validClaude(m.Claude, now) && !m.Claude.Captured.After(now) &&
-		(next.Claude == nil || !m.Claude.Captured.Before(next.Claude.Captured)) {
+	// value on failure; they never regress.
+	claudeOK := validClaude(m.Claude, now) && !m.Claude.Captured.After(now) &&
+		(next.Claude == nil || !m.Claude.Captured.Before(next.Claude.Captured))
+	if claudeOK {
 		next.Claude = m.Claude
 	}
-	if validTimes(m.Times, now) && (next.Times == nil || m.Times.IssueNo >= next.Times.IssueNo) {
+	timesOK := validTimes(m.Times, now) && (next.Times == nil || m.Times.IssueNo >= next.Times.IssueNo)
+	if timesOK {
 		next.Times = m.Times
 	}
 	if err := saveJSON(s.Cache, &next); err != nil {
-		return false, false, err
+		return false, false, false, err
 	}
 	s.snapshot = &next
-	return aiOK, hostOK, nil
+	return aiOK, hostOK, claudeOK && timesOK, nil
 }

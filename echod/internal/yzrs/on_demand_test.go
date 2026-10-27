@@ -77,7 +77,7 @@ func TestLANMetricsFreshnessAndIndependentLKG(t *testing.T) {
 	ai.Updated = now
 	host := hostFixture(200)
 	host.Measured = now
-	a, b, e := s.applyMetrics(Metrics{AI: &ai, Host: host}, started, now)
+	a, b, _, e := s.applyMetrics(Metrics{AI: &ai, Host: host}, started, now)
 	if !a || !b || e != nil || !s.snapshot.Generated.Equal(fixtureTime) {
 		t.Fatal("fresh lanes or canonical generation corrupted")
 	}
@@ -89,7 +89,7 @@ func TestLANMetricsFreshnessAndIndependentLKG(t *testing.T) {
 		t.Fatal("Vault failure hid successful LAN HOST")
 	}
 	old := hostFixture(0)
-	a, b, e = s.applyMetrics(Metrics{Host: old}, now, now.Add(time.Second))
+	a, b, _, e = s.applyMetrics(Metrics{Host: old}, now, now.Add(time.Second))
 	if a || b || e != nil || *s.snapshot.Host.Temp.Bytes != 200 || !*s.snapshot.Host.Stale || !*s.snapshot.AI.Codex.Stale {
 		t.Fatal("old/omitted metrics regressed LKG")
 	}
