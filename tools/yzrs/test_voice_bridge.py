@@ -10,19 +10,30 @@ from voice_bridge import MAX_PCM, Session, connection, read_config, startup_step
 class ExitKeyTests(unittest.IsolatedAsyncioTestCase):
     async def run_with_esc(self, **kwargs):
         import ssl
+        import sys
         from types import SimpleNamespace
         from unittest.mock import patch
-        import keyboard
         import voice_bridge
         callbacks = []
         context = ssl.create_default_context
         cfg = {"url": "wss://127.0.0.1:9/ptt", "token": "x" * 64, "ca_file": "unused", "stt_prompt": None}
-        with patch.object(keyboard, "hook", lambda hook: callbacks.append(hook) or hook), \
-                patch.object(keyboard, "unhook", lambda handle: None), \
+        # Stand-ins for the Windows-only keyboard and clipboard packages, so the
+        # Linux CI (websockets only) runs the same check without a real key hook.
+        keyboard = SimpleNamespace(KEY_DOWN="down", hook=lambda hook: callbacks.append(hook) or hook,
+            unhook=lambda handle: None, press_and_release=lambda keys: None)
+        pyperclip = SimpleNamespace(copy=lambda text: None)
+        with patch.dict(sys.modules, {"keyboard": keyboard, "pyperclip": pyperclip}), \
                 patch.object(voice_bridge.ssl, "create_default_context", lambda cafile=None: context()):
             task = asyncio.create_task(voice_bridge.run(cfg, None, **kwargs))
-            while not callbacks:
+            # Bounded: if run() fails before registering the hook, report it instead of waiting forever.
+            for _ in range(500):
+                if callbacks or task.done():
+                    break
                 await asyncio.sleep(0.01)
+            if not callbacks:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                self.fail("run() did not register the key hook")
             callbacks[0](SimpleNamespace(name="esc", event_type=keyboard.KEY_DOWN))
             done, _ = await asyncio.wait({task}, timeout=3)
             task.cancel()
@@ -30,6 +41,10 @@ class ExitKeyTests(unittest.IsolatedAsyncioTestCase):
             return bool(done)
 
     async def test_esc_in_another_app_does_not_stop_client(self):
+        import importlib.util
+        # run() imports websockets; the Windows CI job installs no Python packages.
+        if importlib.util.find_spec("websockets") is None:
+            self.skipTest("websockets is not installed")
         self.assertFalse(await self.run_with_esc())
         self.assertTrue(await self.run_with_esc(exit_key="esc"))
 
