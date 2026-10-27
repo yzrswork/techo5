@@ -20,26 +20,26 @@ AI = {'source': 'token-monitor', 'updatedAt': STAMP, 'codex': {
 class LaneTests(unittest.IsolatedAsyncioTestCase):
     async def test_delivery_buffer_preserves_real_timestamps(self):
         async def collector(path, timeout):
-            return AI if path.name == 'send-ai-usage.ps1' else HOST
+            return HOST
         with patch('voice_bridge.asyncio.sleep', new_callable=AsyncMock) as settle:
             result = await measure_dashboard('fixture', collector, readers={})
             settle.assert_awaited_once_with(2)
-        self.assertEqual(result['ai']['updatedAt'], STAMP)
         self.assertEqual(result['host']['measuredAt'], STAMP)
 
     async def test_lanes_independent_and_deadlines(self):
         calls = []
         async def collector(path, timeout):
             calls.append((path.name, timeout))
-            if path.name == 'send-ai-usage.ps1':
-                raise TimeoutError('private diagnostic')
             return dict(HOST, privateIdentity='never-forward')
-        result = await measure_dashboard('fixture', collector, readers={})
+        def broken():
+            raise TimeoutError('private diagnostic')
+        result = await measure_dashboard('fixture', collector, readers={'times': broken})
         self.assertEqual(set(result), {'host'})
         self.assertEqual(result['host']['codexTemp']['bytes'], 1234)
         self.assertFalse(result['host']['stale'])
         self.assertNotIn('privateIdentity', result['host'])
-        self.assertCountEqual(calls, [('send-ai-usage.ps1', 20), ('send-host-metrics.ps1', 30)])
+        # The retired Codex AI collector (send-ai-usage.ps1) is never started.
+        self.assertEqual(calls, [('send-host-metrics.ps1', 30)])
 
     async def test_collector_path_survives_empty_path_and_explicit_override(self):
         class Process:
@@ -99,17 +99,8 @@ class LaneTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(_native_lane('host', dict(HOST, codexTemp={'status': 'ok'})))
         self.assertIsNone(_native_lane('host', dict(HOST, codexTemp={'bytes': True, 'status': 'ok'})))
 
-    def test_native_allowlists_and_invalid_ai(self):
-        ai = json.loads(json.dumps(AI))
-        ai['accountEmail'] = 'never-forward'
-        ai['codex']['accountEmail'] = 'never-forward'
-        ai['codex']['session']['accountEmail'] = 'never-forward'
-        self.assertEqual(_native_lane('ai', ai), AI)
-        ai['codex']['todayTokens'] = None
-        self.assertIsNone(_native_lane('ai', ai))
-        ai = json.loads(json.dumps(AI))
-        ai['codex']['weekly']['resetsAt'] = {'privateIdentity': 'never-forward'}
-        self.assertIsNone(_native_lane('ai', ai))
+    def test_retired_ai_lane_never_leaves_pc(self):
+        self.assertIsNone(_native_lane('ai', AI))
 
 CLAUDE = {'source': 'claude-statusline', 'capturedAt': STAMP,
           'fiveHour': {'remainingPercent': 77, 'resetsAt': STAMP},
@@ -171,7 +162,7 @@ class RefreshTests(unittest.IsolatedAsyncioTestCase):
             count.append(1)
             entered.set()
             await release.wait()
-            return {'ai': AI, 'host': HOST, 'privateIdentity': 'never-forward'}
+            return {'ai': AI, 'host': HOST, 'times': TIMES, 'privateIdentity': 'never-forward'}
         def paste(text):
             pasted.append(text)
             release.set()
@@ -192,7 +183,7 @@ class RefreshTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(pasted, ['fixture'])
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]['id'], 'a' * 32)
-        self.assertEqual(set(result[0]), {'op', 'id', 'ai', 'host'})
+        self.assertEqual(set(result[0]), {'op', 'id', 'host', 'times'})
         self.assertTrue(any(m['op'] == 'ping' for m in ws.sent))
 
     async def test_disconnect_cancels_measurement_and_never_sends_result(self):

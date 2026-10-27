@@ -211,27 +211,8 @@ def _native_lane(lane, value):
             if not isinstance(outlet, str) or not re.fullmatch(r"[^\x00-\x1f\x7f]{0,40}", outlet):
                 return None
             return {name: value[name] for name in ("source", "issueNo", "edition", "date", "fetchedAt", "title", "outlet")}
-        if lane != "ai":
-            return None
-        if value["source"] != "token-monitor" or not stamp(value.get("updatedAt")):
-            return None
-        codex = value["codex"]
-        if type(codex["stale"]) is not bool or type(codex["todayTokens"]) is not int or not 0 <= codex["todayTokens"] <= 9007199254740991:
-            return None
-        if not isinstance(codex["plan"], str) or not re.fullmatch(r"[^@\r\n]{1,64}", codex["plan"]):
-            return None
-        if not isinstance(codex["status"], str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,32}", codex["status"]):
-            return None
-        clean = {name: codex[name] for name in ("plan", "status", "stale", "todayTokens")}
-        for name in ("session", "weekly"):
-            window = codex[name]
-            percent = window["remainingPercent"]
-            if type(percent) not in (int, float) or not 0 <= percent <= 100:
-                return None
-            if not stamp(window.get("resetsAt")):
-                return None
-            clean[name] = {"remainingPercent": percent, "resetsAt": window["resetsAt"]}
-        return {"source": value["source"], "updatedAt": value["updatedAt"], "codex": clean}
+        # The Codex "ai" lane was retired with Token Monitor; unknown lanes never leave this PC.
+        return None
     except (KeyError, TypeError):
         return None
 
@@ -275,7 +256,6 @@ def fetch_times(url=TIMES_URL, timeout=10):
 async def measure_dashboard(base=None, collector=_measure_lane, readers=None):
     """Independent bounded local lanes. Missing evidence never becomes a zero."""
     base = Path(base) if base else Path(os.environ.get("LOCALAPPDATA", "")) / "YZRS/EchoDashboard"
-    ai_script = Path(__file__).with_name("send-ai-usage.ps1")
     if readers is None:
         readers = {"claude": read_claude_usage, "times": fetch_times}
     async def lane(name, script, timeout):
@@ -289,7 +269,7 @@ async def measure_dashboard(base=None, collector=_measure_lane, readers=None):
         except Exception:
             return name, None
     values = await asyncio.wait_for(asyncio.gather(
-        lane("ai", ai_script, 20), lane("host", base / "send-host-metrics.ps1", 30),
+        lane("host", base / "send-host-metrics.ps1", 30),
         *(local(name, reader) for name, reader in readers.items())), 55)
     result = {name: value for name, value in values if value is not None}
     if result:
@@ -371,7 +351,7 @@ async def connection(ws, events, session, transcribe, paste, measure=measure_das
                 result = dashboard.result()
                 message = {"op": "dashboard_result", "id": dashboard_id}
                 # Defense in depth: only native dashboard lanes can leave this PC.
-                for name in ("ai", "host", "claude", "times"):
+                for name in ("host", "claude", "times"):
                     clean = _native_lane(name, result.get(name)) if isinstance(result, dict) else None
                     if clean is not None:
                         message[name] = clean
@@ -413,7 +393,9 @@ def read_config(path):
     return cfg
 
 
-async def run(cfg, model, check_startup=False):
+async def run(cfg, model, check_startup=False, exit_key=None):
+    # No global exit key in production: Esc pressed in any app used to stop the
+    # client silently. Stop with stop-voice.ps1. Tests pass exit_key to end a run.
     import keyboard
     import pyperclip
     from websockets.asyncio.client import connect
@@ -433,14 +415,14 @@ async def run(cfg, model, check_startup=False):
     def hook(event):
         if event.name == "f8":
             loop.call_soon_threadsafe(enqueue, event.event_type)
-        elif event.name == "esc" and event.event_type == keyboard.KEY_DOWN:
+        elif exit_key and event.name == exit_key and event.event_type == keyboard.KEY_DOWN:
             loop.call_soon_threadsafe(enqueue, "exit")
     handle = startup_step("HOTKEY", lambda: keyboard.hook(hook))
     def paste(text):
         pyperclip.copy(text)
         keyboard.press_and_release("ctrl+v")
     try:
-        print("PTT READY / F8 DOWN-UP / Esc", flush=True)
+        print("PTT READY / F8 DOWN-UP / 終了は stop-voice.ps1", flush=True)
         if check_startup:
             return
         while True:

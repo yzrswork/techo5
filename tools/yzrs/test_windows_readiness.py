@@ -51,13 +51,13 @@ async def exercise(cfg, model, speech=False, expected_error=None, waiting=False)
         try:
             if expected_error:
                 try:
-                    await asyncio.wait_for(run(cfg, model), 12)
+                    await asyncio.wait_for(run(cfg, model, exit_key="esc"), 12)
                 except StartupError as error:
                     assert str(error) == expected_error
                 else:
                     raise AssertionError("Invalid identity/auth must not reconnect forever")
             else:
-                await asyncio.wait_for(run(cfg, model), 35)
+                await asyncio.wait_for(run(cfg, model, exit_key="esc"), 35)
                 assert paste_count == (1 if speech else 0)
         finally:
             driver.cancel()
@@ -120,7 +120,7 @@ async def reconnect(cert):
     cfg = dict(url="wss://127.0.0.1:17330/ptt", token="fixture-token-loopback-only-000000", ca_file=cert)
     async with serve(handler, "127.0.0.1", 17330, ssl=tls):
         with patch.object(keyboard, "hook", register):
-            await asyncio.wait_for(run(cfg, None), 12)
+            await asyncio.wait_for(run(cfg, None, exit_key="esc"), 12)
     assert attempts == 2
     print("PRODUCTION_TLS_DISCONNECT / RECONNECT / ESC_CLEAN_EXIT PASS")
 

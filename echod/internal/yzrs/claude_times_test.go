@@ -76,7 +76,7 @@ func TestClaudeTimesMonotonicAndWorkerCarryOver(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := fixtureTime.Add(time.Minute)
-	if _, _, err := s.applyMetrics(Metrics{Claude: claudeFixture(fixtureTime, 77), Times: timesFixture(213)}, now, now); err != nil {
+	if _, _, _, err := s.applyMetrics(Metrics{Claude: claudeFixture(fixtureTime, 77), Times: timesFixture(213)}, now, now); err != nil {
 		t.Fatal(err)
 	}
 	// Older observations and lower issue numbers never replace newer values.
@@ -149,6 +149,35 @@ func TestClaudeTimesHUD(t *testing.T) {
 		}
 		if !changed {
 			t.Fatal("Claude/Times not rendered")
+		}
+	}
+}
+
+// Codex and host lanes are no longer displayed, so their absence must not
+// report the PC as not updated; a missing displayed lane still does.
+func TestRefreshStatusFollowsDisplayedLanes(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(fixture(t)) }))
+	defer srv.Close()
+	for _, tc := range []struct {
+		m    Metrics
+		want string
+	}{
+		{Metrics{Claude: claudeFixture(fixtureTime, 77), Times: timesFixture(213)}, "更新済"},
+		{Metrics{Claude: claudeFixture(fixtureTime, 77)}, "PC未更新 / LKG"},
+		{Metrics{Times: timesFixture(213)}, "PC未更新 / LKG"},
+	} {
+		s, _ := NewStore("https://worker.invalid/dashboard", "test", filepath.Join(t.TempDir(), "cache.json"))
+		s.URL, s.Client = srv.URL, srv.Client()
+		m := tc.m
+		if !s.Refresh(context.Background(), func(context.Context) (Metrics, error) { return m, nil }) {
+			t.Fatal("tap refused")
+		}
+		until := time.Now().Add(2 * time.Second)
+		for s.RefreshStatus() == "更新中" && time.Now().Before(until) {
+			time.Sleep(time.Millisecond)
+		}
+		if got := s.RefreshStatus(); got != tc.want {
+			t.Fatalf("status %q, want %q", got, tc.want)
 		}
 	}
 }
